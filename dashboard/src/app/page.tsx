@@ -37,19 +37,24 @@ interface DeviceLog {
 
 type Timeframe = 'day' | 'week' | 'month' | 'year';
 
-export default function Dashboard() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [latest, setLatest] = useState<Reading | null>(null);
   const [logs, setLogs] = useState<DeviceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<Timeframe>('day');
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'sensors' | 'power'>('dashboard');
+  const [sessions, setSessions] = useState<{ duration: number, created_at: string, boot_count: number, measure_count: number }[]>([]);
 
   useEffect(() => {
     fetchReadings();
-  }, [timeframe]);
+    if (activeTab === 'power') fetchSessions();
+  }, [timeframe, activeTab]);
 
-  useEffect(() => {
+  async function fetchSessions() {
+    const { data } = await supabase.from('device_sessions').select('*').order('created_at', { ascending: false }).limit(50);
+    if (data) setSessions(data);
+  }
     fetchLogs();
     const channel = supabase
       .channel('live_updates')
@@ -385,218 +390,247 @@ export default function Dashboard() {
           </div>
         </div>
         <nav className="flex flex-col gap-4 w-full px-3 group-hover:px-4">
-          <NavItem icon="dashboard" label="DASHBOARD" active />
-          <NavItem icon="sensors" label="SENSORS" />
-          <NavItem icon="bolt" label="POWER" />
+          <NavItem icon="dashboard" label="DASHBOARD" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+          <NavItem icon="sensors" label="SENSORS" active={activeTab === 'sensors'} onClick={() => setActiveTab('sensors')} />
+          <NavItem icon="bolt" label="POWER" active={activeTab === 'power'} onClick={() => setActiveTab('power')} />
         </nav>
       </aside>
 
       {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 w-full h-16 z-50 bg-black/40 backdrop-blur-[20px] border-t border-white/10 flex justify-around items-center px-4">
-        <MobileNavItem icon="dashboard" label="HOME" active />
-        <MobileNavItem icon="sensors" label="SENSORS" />
-        <MobileNavItem icon="bolt" label="POWER" />
+        <MobileNavItem icon="dashboard" label="HOME" active={activeTab === 'dashboard'} onClick={() => setActiveTab('dashboard')} />
+        <MobileNavItem icon="sensors" label="SENSORS" active={activeTab === 'sensors'} onClick={() => setActiveTab('sensors')} />
+        <MobileNavItem icon="bolt" label="POWER" active={activeTab === 'power'} onClick={() => setActiveTab('power')} />
       </nav>
 
       {/* Main Content */}
       <main className="md:pl-20 pt-16 pb-20 md:pb-8">
         <div className="p-4 md:p-8 flex flex-col gap-6 md:gap-8 max-w-[1600px] mx-auto">
           
-          <div className="grid grid-cols-12 gap-6 items-end">
-            <div className="col-span-12 lg:col-span-8">
-              <div className="flex items-center gap-4 mb-2">
-                 <p className="text-[12px] text-cyan-400/70 uppercase tracking-[0.3em]">System Monitoring Unit</p>
-                 <div className="px-2 py-0.5 bg-slate-900 border border-white/10 rounded text-[10px] text-slate-400 font-mono">
-                   SYNC: {lastUpdateStr}
+          {activeTab === 'dashboard' && (
+            <>
+              <div className="grid grid-cols-12 gap-6 items-end">
+                <div className="col-span-12 lg:col-span-8">
+                  <div className="flex items-center gap-4 mb-2">
+                     <p className="text-[12px] text-cyan-400/70 uppercase tracking-[0.3em]">System Monitoring Unit</p>
+                     <div className="px-2 py-0.5 bg-slate-900 border border-white/10 rounded text-[10px] text-slate-400 font-mono">
+                       SYNC: {lastUpdateStr}
+                     </div>
+                  </div>
+                  <h1 className="text-2xl md:text-3xl font-semibold text-on-surface uppercase tracking-tight">Environmental_OVR</h1>
+                </div>
+                {/* ... existing header ... */}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <StatTile 
+                  icon="thermostat" 
+                  label="TEMPERATURE" 
+                  value={displayData.temp.toFixed(1)} 
+                  unit="°C" 
+                  color="cyan" 
+                  progress={(displayData.temp) / 50 * 100} 
+                  subLabel={displayData.label}
+                />
+                <StatTile 
+                  icon="humidity_percentage" 
+                  label="HUMIDITY" 
+                  value={displayData.hum.toFixed(1)} 
+                  unit="%" 
+                  color="magenta" 
+                  progress={displayData.hum} 
+                  subLabel={displayData.label}
+                />
+                <StatTile 
+                  icon="light_mode" 
+                  label="LIGHT INTENSITY" 
+                  value={displayData.ldr.toFixed(0).toLocaleString()} 
+                  unit="LUX" 
+                  color="lime" 
+                  progress={(displayData.ldr) / 4095 * 100} 
+                  subLabel={displayData.label}
+                />
+                
+                <div className="glass-panel-heavy p-6 rounded-xl flex flex-col items-center justify-center gap-2 relative overflow-hidden group">
+                   <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/10 to-transparent opacity-50"></div>
+                   <p className="text-[12px] text-outline font-medium tracking-widest uppercase z-10">Comfort Index</p>
+                   <motion.div 
+                     key={comfortScore}
+                     initial={{ scale: 0.8, opacity: 0.5 }}
+                     animate={{ scale: 1, opacity: 1 }}
+                     transition={{ type: 'spring', stiffness: 200, damping: 10 }}
+                     className="flex items-baseline gap-1 z-10"
+                   >
+                      <span className="text-6xl font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">{comfortScore}</span>
+                      <span className="text-sm text-outline">/100</span>
+                   </motion.div>
+                   <div className="w-full bg-white/5 h-1.5 rounded-full mt-4 overflow-hidden z-10">
+                     <motion.div 
+                       className="h-full bg-gradient-to-r from-red-500 via-yellow-400 to-green-500"
+                       initial={{ width: 0 }}
+                       animate={{ width: `${comfortScore}%` }}
+                       transition={{ duration: 1 }}
+                     ></motion.div>
+                   </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-12 xl:col-span-8">
+                  <section className="glass-panel-heavy p-4 md:p-8 rounded-xl h-full flex flex-col min-h-[400px] md:min-h-[500px]">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
+                      <div>
+                        <h2 className="text-2xl font-medium text-primary uppercase tracking-tight">Trend_Analysis</h2>
+                        <p className="text-[10px] text-outline tracking-wider uppercase">Multi-Sensor Overlay</p>
+                      </div>
+                      <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
+                        <TimeToggle label="24H" active={timeframe === 'day'} onClick={() => setTimeframe('day')} />
+                        <TimeToggle label="7D" active={timeframe === 'week'} onClick={() => setTimeframe('week')} />
+                        <TimeToggle label="30D" active={timeframe === 'month'} onClick={() => setTimeframe('month')} />
+                        <TimeToggle label="1Y" active={timeframe === 'year'} onClick={() => setTimeframe('year')} />
+                      </div>
+                    </div>
+                    
+                    <div className="flex-grow min-h-[350px]">
+                      <ReactECharts 
+                        option={chartOptions} 
+                        style={{ height: '100%', width: '100%' }}
+                        opts={{ renderer: 'svg' }}
+                      />
+                    </div>
+
+                    <div className="flex gap-6 mt-6 border-t border-white/5 pt-4 overflow-x-auto">
+                        <LegendItem color="bg-cyan-400" label="Temperature (°C)" />
+                        <LegendItem color="bg-secondary" label="Humidity (%)" />
+                        <LegendItem color="bg-tertiary-container" label="Light (Scaled)" />
+                    </div>
+                  </section>
+                </div>
+
+                <div className="col-span-12 xl:col-span-4 flex flex-col gap-6">
+                  <section className="glass-panel-heavy p-4 md:p-6 rounded-xl flex flex-col">
+                    <div className="flex items-center gap-3 mb-4">
+                      <span className="material-symbols-outlined text-amber-400">person_search</span>
+                      <h2 className="text-lg font-medium text-primary uppercase tracking-tight">Activity_Timeline</h2>
+                    </div>
+                    <div className="flex-grow flex flex-col gap-3 min-h-[120px] justify-center">
+                       {presenceEvents.length === 0 ? (
+                          <div className="text-center opacity-30 text-xs italic font-mono">No recent activity shifts detected.</div>
+                       ) : (
+                          <div className="flex flex-col gap-4 relative before:absolute before:inset-y-0 before:left-[11px] before:w-[2px] before:bg-white/5 pl-2">
+                             {presenceEvents.map((evt, idx) => (
+                               <motion.div key={idx} initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }} className="relative flex items-center gap-4">
+                                  <div className={`w-4 h-4 rounded-full border-2 border-[#0f172a] z-10 ${evt.label === 'User Home' ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                                  <div className="flex flex-col">
+                                    <span className={`text-sm font-bold uppercase tracking-wider ${evt.label === 'User Home' ? 'text-green-400' : 'text-red-400'}`}>{evt.label}</span>
+                                    <span className="text-[10px] text-outline font-mono">{formatSGTime(evt.time)}</span>
+                                  </div>
+                               </motion.div>
+                             ))}
+                          </div>
+                       )}
+                    </div>
+                  </section>
+
+                  <section className="glass-panel-heavy p-4 md:p-6 rounded-xl flex-grow flex flex-col min-h-[300px]">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="material-symbols-outlined text-cyan-400">terminal</span>
+                        <h2 className="text-lg font-medium text-primary uppercase tracking-tight">System_Logs</h2>
+                      </div>
+                    </div>
+                    <div className="bg-black/40 rounded-lg p-4 font-mono text-[10px] flex-grow overflow-y-auto flex flex-col gap-3 border border-white/5 max-h-[300px]">
+                      {logs.map((log) => (
+                        <div key={log.id} className="flex flex-col gap-1 border-l-2 border-cyan-500/10 pl-3 py-0.5">
+                          <div className="flex justify-between items-center opacity-40">
+                            <span>[{formatSGTime(log.created_at)}]</span>
+                            <span className={`font-bold ${log.level === 'ERROR' ? 'text-red-400' : 'text-cyan-400'}`}>{log.level}</span>
+                          </div>
+                          <span className="text-slate-300">{log.message}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                </div>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'power' && (
+            <div className="flex flex-col gap-8">
+              <div className="grid grid-cols-12 gap-6 items-end">
+                <div className="col-span-12">
+                  <h1 className="text-2xl md:text-3xl font-semibold text-on-surface uppercase tracking-tight">Runtime_Analytics</h1>
+                  <p className="text-[12px] text-cyan-400/70 uppercase tracking-[0.3em]">Device Longevity & Session Tracking</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                 <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-cyan-400">
+                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Total Lifetime Uptime</p>
+                    <p className="text-4xl font-black text-white">{(sessions.reduce((acc, s) => acc + s.duration, 0) / 3600).toFixed(1)} <span className="text-sm font-normal text-outline">HRS</span></p>
+                 </div>
+                 <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-amber-400">
+                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Total Boot Count</p>
+                    <p className="text-4xl font-black text-white">{sessions.length} <span className="text-sm font-normal text-outline">CYCLES</span></p>
+                 </div>
+                 <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-purple-400">
+                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Avg Session Length</p>
+                    <p className="text-4xl font-black text-white">{(sessions.reduce((acc, s) => acc + s.duration, 0) / (sessions.length || 1) / 60).toFixed(0)} <span className="text-sm font-normal text-outline">MIN</span></p>
                  </div>
               </div>
-              <h1 className="text-2xl md:text-3xl font-semibold text-on-surface uppercase tracking-tight">Environmental_OVR</h1>
-            </div>
-            <div className="hidden lg:col-span-4 lg:flex justify-end pr-4">
-              <div className="flex items-center gap-3 text-xs text-outline font-medium uppercase tracking-widest">
-                <span className="flex h-2 w-2 rounded-full bg-tertiary-container shadow-[0_0_8px_#a4f200]"></span>
-                LATENCY: 12ms
-                <span className="ml-4 flex h-2 w-2 rounded-full bg-primary-container shadow-[0_0_8px_#00f3ff]"></span>
-                STATUS: {latest?.trigger_source === 'manual' ? 'MANUAL_TRIGGER' : 'AUTO_SYNC'}
-              </div>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <StatTile 
-              icon="thermostat" 
-              label="TEMPERATURE" 
-              value={displayData.temp.toFixed(1)} 
-              unit="°C" 
-              color="cyan" 
-              progress={(displayData.temp) / 50 * 100} 
-              subLabel={displayData.label}
-            />
-            <StatTile 
-              icon="humidity_percentage" 
-              label="HUMIDITY" 
-              value={displayData.hum.toFixed(1)} 
-              unit="%" 
-              color="magenta" 
-              progress={displayData.hum} 
-              subLabel={displayData.label}
-            />
-            <StatTile 
-              icon="light_mode" 
-              label="LIGHT INTENSITY" 
-              value={displayData.ldr.toFixed(0).toLocaleString()} 
-              unit="LUX" 
-              color="lime" 
-              progress={(displayData.ldr) / 4095 * 100} 
-              subLabel={displayData.label}
-            />
-            
-            <div className="glass-panel-heavy p-6 rounded-xl flex flex-col items-center justify-center gap-2 relative overflow-hidden group">
-               <div className="absolute inset-0 bg-gradient-to-t from-cyan-500/10 to-transparent opacity-50"></div>
-               <p className="text-[12px] text-outline font-medium tracking-widest uppercase z-10">Comfort Index</p>
-               <motion.div 
-                 key={comfortScore}
-                 initial={{ scale: 0.8, opacity: 0.5 }}
-                 animate={{ scale: 1, opacity: 1 }}
-                 transition={{ type: 'spring', stiffness: 200, damping: 10 }}
-                 className="flex items-baseline gap-1 z-10"
-               >
-                  <span className="text-6xl font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">{comfortScore}</span>
-                  <span className="text-sm text-outline">/100</span>
-               </motion.div>
-               <div className="w-full bg-white/5 h-1.5 rounded-full mt-4 overflow-hidden z-10">
-                 <motion.div 
-                   className="h-full bg-gradient-to-r from-red-500 via-yellow-400 to-green-500"
-                   initial={{ width: 0 }}
-                   animate={{ width: `${comfortScore}%` }}
-                   transition={{ duration: 1 }}
-                 ></motion.div>
-               </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-12 gap-6">
-            <div className="col-span-12 xl:col-span-8">
-              <section className="glass-panel-heavy p-4 md:p-8 rounded-xl h-full flex flex-col min-h-[400px] md:min-h-[500px]">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 md:mb-8">
-                  <div>
-                    <h2 className="text-2xl font-medium text-primary uppercase tracking-tight">Trend_Analysis</h2>
-                    <p className="text-[10px] text-outline tracking-wider uppercase">Multi-Sensor Overlay</p>
-                  </div>
-                  <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
-                    <TimeToggle label="24H" active={timeframe === 'day'} onClick={() => setTimeframe('day')} />
-                    <TimeToggle label="7D" active={timeframe === 'week'} onClick={() => setTimeframe('week')} />
-                    <TimeToggle label="30D" active={timeframe === 'month'} onClick={() => setTimeframe('month')} />
-                    <TimeToggle label="1Y" active={timeframe === 'year'} onClick={() => setTimeframe('year')} />
-                  </div>
-                </div>
-                
-                <div className="flex-grow min-h-[350px]">
-                  <ReactECharts 
-                    option={chartOptions} 
-                    style={{ height: '100%', width: '100%' }}
-                    opts={{ renderer: 'svg' }}
-                  />
-                </div>
-
-                <div className="flex gap-6 mt-6 border-t border-white/5 pt-4 overflow-x-auto">
-                    <LegendItem color="bg-cyan-400" label="Temperature (°C)" />
-                    <LegendItem color="bg-secondary" label="Humidity (%)" />
-                    <LegendItem color="bg-tertiary-container" label="Light (Scaled)" />
-                    <div className="flex items-center gap-2 whitespace-nowrap ml-auto">
-                       <span className={`w-3 h-3 bg-white/5 border border-white/10 rounded`}></span>
-                       <span className="text-[10px] text-outline uppercase font-bold tracking-wider">Low Light Period</span>
-                    </div>
-                </div>
+              <section className="glass-panel-heavy p-6 rounded-xl">
+                 <h2 className="text-xl font-medium text-primary uppercase tracking-tight mb-6">Session_History</h2>
+                 <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                       <thead>
+                          <tr className="border-b border-white/10 text-[10px] text-outline tracking-widest uppercase">
+                             <th className="py-4 px-2">Timestamp</th>
+                             <th className="py-4 px-2">Duration</th>
+                             <th className="py-4 px-2">Boot Index</th>
+                             <th className="py-4 px-2">Sync Count</th>
+                             <th className="py-4 px-2">Efficiency</th>
+                          </tr>
+                       </thead>
+                       <tbody className="text-xs font-mono">
+                          {sessions.map((s, idx) => (
+                             <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                <th className="py-4 px-2 font-normal text-slate-400">{new Date(s.created_at).toLocaleString()}</th>
+                                <th className="py-4 px-2 text-cyan-400">{Math.floor(s.duration / 60)}m {s.duration % 60}s</th>
+                                <th className="py-4 px-2 text-amber-400">#{s.boot_count}</th>
+                                <th className="py-4 px-2 text-purple-400">{s.measure_count}</th>
+                                <th className="py-4 px-2">
+                                   <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden">
+                                      <div className="h-full bg-green-400" style={{ width: `${Math.min(100, (s.measure_count / (s.duration/60)) * 100)}%` }}></div>
+                                   </div>
+                                </th>
+                             </tr>
+                          ))}
+                       </tbody>
+                    </table>
+                 </div>
               </section>
             </div>
-
-            <div className="col-span-12 xl:col-span-4 flex flex-col gap-6">
-              
-              {/* Presence Detection Timeline */}
-              <section className="glass-panel-heavy p-4 md:p-6 rounded-xl flex flex-col">
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="material-symbols-outlined text-amber-400">person_search</span>
-                  <h2 className="text-lg font-medium text-primary uppercase tracking-tight">Activity_Timeline</h2>
-                </div>
-                <div className="flex-grow flex flex-col gap-3 min-h-[120px] justify-center">
-                   {presenceEvents.length === 0 ? (
-                      <div className="text-center opacity-30 text-xs italic font-mono">No recent activity shifts detected in the last 30 minutes.</div>
-                   ) : (
-                      <div className="flex flex-col gap-4 relative before:absolute before:inset-y-0 before:left-[11px] before:w-[2px] before:bg-white/5 pl-2">
-                         {presenceEvents.map((evt, idx) => (
-                           <motion.div 
-                             key={idx} 
-                             initial={{ x: -10, opacity: 0 }}
-                             animate={{ x: 0, opacity: 1 }}
-                             className="relative flex items-center gap-4"
-                           >
-                              <div className={`w-4 h-4 rounded-full border-2 border-[#0f172a] z-10 ${evt.label === 'User Home' ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]' : 'bg-red-400 shadow-[0_0_10px_rgba(248,113,113,0.5)]'}`}></div>
-                              <div className="flex flex-col">
-                                <span className={`text-sm font-bold uppercase tracking-wider ${evt.label === 'User Home' ? 'text-green-400' : 'text-red-400'}`}>{evt.label}</span>
-                                <span className="text-[10px] text-outline font-mono">{formatSGTime(evt.time)}</span>
-                              </div>
-                           </motion.div>
-                         ))}
-                      </div>
-                   )}
-                </div>
-              </section>
-
-              {/* System Logs */}
-              <section className="glass-panel-heavy p-4 md:p-6 rounded-xl flex-grow flex flex-col min-h-[300px]">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <span className="material-symbols-outlined text-cyan-400">terminal</span>
-                    <h2 className="text-lg font-medium text-primary uppercase tracking-tight">System_Logs</h2>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px] text-cyan-400/50 font-mono tracking-tighter">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-                    SG_TIME
-                  </div>
-                </div>
-                
-                <div className="bg-black/40 rounded-lg p-4 font-mono text-[10px] flex-grow overflow-y-auto flex flex-col gap-3 border border-white/5 custom-scrollbar max-h-[300px]">
-                  {logs.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-full gap-2 opacity-30 italic">
-                      <span className="material-symbols-outlined animate-spin">sync</span>
-                      <p>Awaiting Uplink...</p>
-                    </div>
-                  )}
-                  {logs.map((log) => (
-                    <div key={log.id} className="flex flex-col gap-1 border-l-2 border-cyan-500/10 pl-3 hover:border-cyan-400/30 transition-colors py-0.5">
-                      <div className="flex justify-between items-center opacity-40">
-                        <span>[{formatSGTime(log.created_at)}]</span>
-                        <span className={`font-bold ${log.level === 'ERROR' ? 'text-red-400' : 'text-cyan-400'}`}>
-                          {log.level}
-                        </span>
-                      </div>
-                      <span className="text-slate-300 leading-relaxed font-light">{log.message}</span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-            </div>
-          </div>
+          )}
         </div>
       </main>
     </div>
   );
 }
 
-function NavItem({ icon, label, active = false }: { icon: string, label: string, active?: boolean }) {
+function NavItem({ icon, label, active = false, onClick }: { icon: string, label: string, active?: boolean, onClick: () => void }) {
   return (
-    <div className={`flex items-center gap-4 p-3 rounded-lg transition-all cursor-pointer ${active ? 'bg-cyan-500/10 text-cyan-400 border-r-4 border-cyan-400' : 'text-slate-500 hover:bg-white/5 hover:text-cyan-200'}`}>
+    <div onClick={onClick} className={`flex items-center gap-4 p-3 rounded-lg transition-all cursor-pointer ${active ? 'bg-cyan-500/10 text-cyan-400 border-r-4 border-cyan-400' : 'text-slate-500 hover:bg-white/5 hover:text-cyan-200'}`}>
       <span className="material-symbols-outlined">{icon}</span>
       <span className="hidden group-hover:block text-[12px] font-medium tracking-widest">{label}</span>
     </div>
   );
 }
 
-function MobileNavItem({ icon, label, active = false }: { icon: string, label: string, active?: boolean }) {
+function MobileNavItem({ icon, label, active = false, onClick }: { icon: string, label: string, active?: boolean, onClick: () => void }) {
   return (
-    <div className={`flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${active ? 'text-cyan-400' : 'text-slate-500 hover:text-cyan-200'}`}>
+    <div onClick={onClick} className={`flex flex-col items-center justify-center gap-1 transition-all cursor-pointer ${active ? 'text-cyan-400' : 'text-slate-500 hover:text-cyan-200'}`}>
       <span className="material-symbols-outlined text-[24px]">{icon}</span>
       <span className="text-[9px] font-bold tracking-widest">{label}</span>
     </div>

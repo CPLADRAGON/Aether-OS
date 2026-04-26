@@ -38,7 +38,9 @@ volatile SystemState currentState = SS_MENU;
 String uiLine1 = "", uiLine2 = "", uiLine3 = "";
 const uint8_t* uiIcon = NULL;
 
-struct WiFiSnapshot {
+// --- Binary Structs (NVS Optimization) ---
+struct __attribute__((packed)) WiFiSnapshot {
+  uint8_t version = 1;
   char ssid[33];
   uint8_t bssid[6];
   uint8_t channel;
@@ -48,13 +50,40 @@ struct WiFiSnapshot {
   uint32_t dns;
   uint32_t crc;
 };
+
+struct __attribute__((packed)) DeviceConfig {
+  uint8_t version = 1;
+  bool ledEnabled = true;
+  int primSlot = 1;
+  bool locationSynced = false;
+  float lat = 0.0;
+  float lon = 0.0;
+  long offset = 28800;
+  char city[16];
+  uint32_t totalLifetimeRuntime = 0; // Total seconds
+};
+
+struct __attribute__((packed)) SessionLog {
+  uint32_t startTime; // UTC Epoch
+  uint16_t duration;  // Seconds
+};
+
+struct __attribute__((packed)) LogQueue {
+  uint8_t version = 1;
+  uint8_t count = 0;
+  SessionLog logs[10];
+};
+
 WiFiSnapshot currentSnapshot;
+DeviceConfig config;
+LogQueue logQueue;
+uint32_t sessionStartTime = 0; // Relative (millis) or Absolute (UTC)
+bool timeSynced = false;
 
 uint32_t calculateCRC(WiFiSnapshot* s) {
   uint32_t originalCrc = s->crc;
   s->crc = 0;
   uint32_t crc = 0; 
-  // Simple XOR-Sum for basic integrity check if ROM CRC is not preferred
   uint8_t* p = (uint8_t*)s;
   for(int i=0; i < sizeof(WiFiSnapshot); i++) crc += p[i];
   s->crc = originalCrc;
@@ -62,6 +91,7 @@ uint32_t calculateCRC(WiFiSnapshot* s) {
 }
 
 void saveWiFiSnapshot() {
+  currentSnapshot.version = 1;
   strncpy(currentSnapshot.ssid, WiFi.SSID().c_str(), 32);
   memcpy(currentSnapshot.bssid, WiFi.BSSID(), 6);
   currentSnapshot.channel = WiFi.channel();
@@ -71,18 +101,89 @@ void saveWiFiSnapshot() {
   currentSnapshot.dns = (uint32_t)WiFi.dnsIP();
   currentSnapshot.crc = calculateCRC(&currentSnapshot);
 
-  preferences.begin("wifi_snap", false);
-  preferences.putBytes("data", &currentSnapshot, sizeof(WiFiSnapshot));
+  preferences.begin("wifi_v2", false);
+  preferences.putBytes("snap", &currentSnapshot, sizeof(WiFiSnapshot));
   preferences.end();
-  Serial.println("[WIFI] Snapshot committed to NVS.");
+  Serial.println("[NVS] Binary snapshot saved.");
 }
 
 bool loadWiFiSnapshot() {
-  preferences.begin("wifi_snap", true);
-  size_t len = preferences.getBytes("data", &currentSnapshot, sizeof(WiFiSnapshot));
+  preferences.begin("wifi_v2", true);
+  size_t len = preferences.getBytes("snap", &currentSnapshot, sizeof(WiFiSnapshot));
   preferences.end();
   if (len != sizeof(WiFiSnapshot)) return false;
   return (currentSnapshot.crc == calculateCRC(&currentSnapshot));
+}
+
+void saveConfig() {
+  preferences.begin("config_v2", false);
+  preferences.putBytes("data", &config, sizeof(DeviceConfig));
+  preferences.end();
+}
+
+void loadConfig() {
+  preferences.begin("config_v2", true);
+  size_t len = preferences.getBytes("data", &config, sizeof(DeviceConfig));
+  preferences.end();
+  if (len != sizeof(DeviceConfig)) {
+    // Default values if not found
+    config.version = 1;
+    config.ledEnabled = true;
+    config.primSlot = 1;
+    config.locationSynced = false;
+    strncpy(config.city, "UNKNOWN", 15);
+  }
+}
+
+void appendSessionLog(uint32_t start, uint16_t dur) {
+  preferences.begin("logs_v2", false);
+  preferences.getBytes("queue", &logQueue, sizeof(LogQueue));
+  if (logQueue.count < 10) {
+    logQueue.logs[logQueue.count] = {start, dur};
+    logQueue.count++;
+  } else {
+    // Shift left to make room (FIFO)
+    for (int i = 0; i < 9; i++) logQueue.logs[i] = logQueue.logs[i+1];
+    logQueue.logs[9] = {start, dur};
+  }
+  preferences.putBytes("queue", &logQueue, sizeof(LogQueue));
+  preferences.end();
+  Serial.printf("[NVS] Log added: %ds. Total in queue: %d\n", dur, logQueue.count);
+}
+
+void clearLogQueue() {
+  preferences.begin("logs_v2", false);
+  logQueue.count = 0;
+  preferences.putBytes("queue", &logQueue, sizeof(LogQueue));
+  preferences.end();
+  Serial.println("[NVS] Log queue cleared.");
+}
+
+void migrateNVS() {
+  preferences.begin("aether", true);
+  if (preferences.isKey("locSync")) {
+    Serial.println("[NVS] Legacy data found. Migrating...");
+    config.locationSynced = preferences.getBool("locSync", false);
+    config.lat = preferences.getFloat("lat", 0.0);
+    config.lon = preferences.getFloat("lon", 0.0);
+    config.offset = preferences.getLong("offset", 28800);
+    String city = preferences.getString("city", "UNKNOWN");
+    strncpy(config.city, city.c_str(), 15);
+    config.primSlot = preferences.getInt("primSlot", 1);
+    preferences.end();
+    
+    saveConfig();
+    
+    // Clear old keys to prevent re-migration
+    preferences.begin("aether", false);
+    preferences.remove("locSync"); preferences.remove("lat");
+    preferences.remove("lon"); preferences.remove("offset");
+    preferences.remove("city");
+    preferences.end();
+    Serial.println("[NVS] Migration complete.");
+  } else {
+    preferences.end();
+  }
 }
 
 // --- Pin Definitions ---
@@ -110,9 +211,9 @@ const unsigned char icon_pin[] PROGMEM = { 0x18, 0x3C, 0x3C, 0x18, 0x18, 0x18, 0
 const unsigned char icon_scan[] PROGMEM = { 0xFF, 0x81, 0xBD, 0xA5, 0xA5, 0xBD, 0x81, 0xFF }; // Sensor Scan
 
 // --- Menu Configuration ---
-enum MenuPage { PAGE_MEASURE, PAGE_TIME, PAGE_WEATHER, PAGE_LOCATE, PAGE_STATS, PAGE_PORTAL, PAGE_RESET, PAGE_SLEEP };
-const char* menuItems[] = {"MEASURE", "CLOCK", "WEATHER", "LOCATE", "STATS", "WIFI CFG", "RESET", "SLEEP"};
-const int TOTAL_MENU_ITEMS = 8;
+enum MenuPage { PAGE_MEASURE, PAGE_TIME, PAGE_WEATHER, PAGE_LOCATE, PAGE_LED, PAGE_STATS, PAGE_PORTAL, PAGE_RESET, PAGE_SLEEP };
+const char* menuItems[] = {"MEASURE", "CLOCK", "WEATHER", "LOCATE", "LED", "STATS", "WIFI CFG", "RESET", "SLEEP"};
+const int TOTAL_MENU_ITEMS = 9;
 
 enum WiFiMenuPage { WF_PORTAL, WF_SELECT, WF_CLEAR, WF_BACK };
 const char* wifiMenuItems[] = {"PORTAL", "SET TARGET", "CLEAR", "BACK"};
@@ -166,9 +267,23 @@ bool mpuFound = false;
 bool oledFound = false;
 
 void setLED(int r, int g, int b) {
+  if (!config.ledEnabled && (r > 0 || g > 0 || b > 0)) {
+    // Only allow brief flash if disabled, or just keep off
+    ledcWrite(RED_CH, 0); ledcWrite(GREEN_CH, 0); ledcWrite(BLUE_CH, 0);
+    return;
+  }
   ledcWrite(RED_CH, r);
   ledcWrite(GREEN_CH, g);
   ledcWrite(BLUE_CH, b);
+}
+
+void toggleLED() {
+  config.ledEnabled = !config.ledEnabled;
+  saveConfig();
+  if (config.ledEnabled) setLED(0, 50, 100);
+  else {
+    ledcWrite(RED_CH, 0); ledcWrite(GREEN_CH, 0); ledcWrite(BLUE_CH, 0);
+  }
 }
 
 // Helper to wait while checking for ISR button events
@@ -865,6 +980,33 @@ void runMeasurementFlow(String trigger) {
         preferences.begin("stats", false);
         preferences.putInt("measures", measureCount);
         preferences.end();
+
+        // Sync Runtime Log Queue
+        preferences.begin("logs_v2", true);
+        preferences.getBytes("queue", &logQueue, sizeof(LogQueue));
+        preferences.end();
+        
+        if (logQueue.count > 0) {
+          if (http.begin(client, String(SUPABASE_URL) + "/rest/v1/device_sessions")) {
+            http.addHeader("apikey", SUPABASE_KEY);
+            http.addHeader("Authorization", "Bearer " + String(SUPABASE_KEY));
+            http.addHeader("Content-Type", "application/json");
+            http.addHeader("Prefer", "return=minimal");
+            
+            JsonDocument sessionDoc;
+            for (int i = 0; i < logQueue.count; i++) {
+              JsonObject obj = sessionDoc.add<JsonObject>();
+              if (logQueue.logs[i].startTime > 1000000) { // Valid Epoch
+                obj["created_at"] = logQueue.logs[i].startTime;
+              }
+              obj["duration"] = logQueue.logs[i].duration;
+              obj["boot_count"] = bootCount;
+              obj["measure_count"] = measureCount;
+            }
+            String sessionBody; serializeJson(sessionDoc, sessionBody);
+            if (http.POST(sessionBody) >= 200) clearLogQueue();
+          }
+        }
         
         currentState = SS_MENU;
         updateOLED("CLOUD", "SYNCED", "SUCCESS", "SAVED", icon_cloud);
@@ -893,7 +1035,11 @@ void runResetStats() {
 }
 
 void showStatsPage() {
-  updateOLED("STATS", "MES:" + String(measureCount), "BOT:" + String(bootCount), "UP:" + String(millis()/60000) + "m");
+  uint32_t totalMin = config.totalLifetimeRuntime / 60;
+  String upStr = "UP:" + String(totalMin) + "m";
+  if (totalMin > 1440) upStr = "UP:" + String(totalMin / 60) + "h";
+  
+  updateOLED("STATS", "MES:" + String(measureCount), "BOT:" + String(bootCount), upStr);
   waitWithButtonPoll(5000); // Cancel on button press
 }
 
@@ -957,7 +1103,12 @@ void drawMenu() {
           display.setTextColor(SSD1306_WHITE);
         }
         display.setCursor(OLED_OFFSET_X + 2, y);
-        display.print(menuItems[idx]);
+        if (idx == PAGE_LED) {
+          display.print("LED: ");
+          display.print(config.ledEnabled ? "ON" : "OFF");
+        } else {
+          display.print(menuItems[idx]);
+        }
       }
     }
     
@@ -1009,37 +1160,56 @@ void enterDeepSleep() {
   
   ledcDetachPin(RED_PIN); ledcDetachPin(GREEN_PIN); ledcDetachPin(BLUE_PIN);
   pinMode(RED_PIN, INPUT); pinMode(GREEN_PIN, INPUT); pinMode(BLUE_PIN, INPUT);
+  
+  // Record Runtime before Sleep
+  uint32_t duration = (millis() - sessionStartTime) / 1000;
+  config.totalLifetimeRuntime += duration;
+  saveConfig();
+  
+  time_t now; time(&now);
+  appendSessionLog((uint32_t)now, (uint16_t)duration);
+
   esp_sleep_enable_timer_wakeup(300 * 1000000ULL);
   esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_PIN, 0);
   esp_deep_sleep_start();
 }
 
 void monitorTask(void *pvParameters) {
-  vTaskDelay(500 / portTICK_PERIOD_MS); // Allow system to settle
-  Serial.println("[SYSTEM] monitorTask Booting...");
+  sessionStartTime = millis();
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+  Serial.println("[SYSTEM] Aether Booting...");
+
+  loadConfig();
+  migrateNVS();
+  
+  // Stealth Mode Check
+  if (config.ledEnabled) {
+    ledcSetup(RED_CH, 5000, 8); ledcAttachPin(RED_PIN, RED_CH);
+    ledcSetup(GREEN_CH, 5000, 8); ledcAttachPin(GREEN_PIN, GREEN_CH);
+    ledcSetup(BLUE_CH, 5000, 8); ledcAttachPin(BLUE_PIN, BLUE_CH);
+    setLED(0, 10, 20); 
+  } else {
+    // Keep as inputs to minimize current draw
+    pinMode(RED_PIN, INPUT); pinMode(GREEN_PIN, INPUT); pinMode(BLUE_PIN, INPUT);
+  }
 
   // Initialize WiFi radio early
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   
-  // Initialize NVS and Load Persistent Stats & Location
+  // Load Stats
   preferences.begin("stats", false);
   bootCount = preferences.getInt("boots", 0) + 1;
   measureCount = preferences.getInt("measures", 0);
   preferences.putInt("boots", bootCount);
   preferences.end();
   
-  preferences.begin("aether", true);
-  locationSynced = preferences.getBool("locSync", false);
-  if (locationSynced) {
-    locLat = preferences.getFloat("lat", 0.0);
-    locLon = preferences.getFloat("lon", 0.0);
-    locOffset = preferences.getLong("offset", 28800);
-    String city = preferences.getString("city", "UNKNOWN");
-    strncpy(locCity, city.c_str(), 15);
-    locCity[15] = '\0';
-  }
-  preferences.end();
+  // Location is now in config
+  locationSynced = config.locationSynced;
+  locLat = config.lat;
+  locLon = config.lon;
+  locOffset = config.offset;
+  strncpy(locCity, config.city, 15);
 
   pinMode(OLED_RST, OUTPUT); digitalWrite(OLED_RST, LOW); vTaskDelay(50); digitalWrite(OLED_RST, HIGH);
   if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) oledFound = true;
@@ -1068,6 +1238,7 @@ void monitorTask(void *pvParameters) {
           else if (currentMenuIndex == PAGE_TIME) showTimePage();
           else if (currentMenuIndex == PAGE_WEATHER) showWeatherPage();
           else if (currentMenuIndex == PAGE_LOCATE) runLocatePage();
+          else if (currentMenuIndex == PAGE_LED) toggleLED();
           else if (currentMenuIndex == PAGE_STATS) showStatsPage();
           else if (currentMenuIndex == PAGE_PORTAL) { currentState = SS_WIFI_MENU; currentWiFiMenuIndex = 0; }
           else if (currentMenuIndex == PAGE_RESET) runResetStats();
@@ -1106,9 +1277,10 @@ void setup() {
   dht.begin();
   if (mpu.begin()) mpuFound = true;
 
-  ledcSetup(RED_CH, 5000, 8); ledcAttachPin(RED_PIN, RED_CH);
-  ledcSetup(GREEN_CH, 5000, 8); ledcAttachPin(GREEN_PIN, GREEN_CH);
-  ledcSetup(BLUE_CH, 5000, 8); ledcAttachPin(BLUE_PIN, BLUE_CH);
+  ledcSetup(RED_CH, 5000, 8);
+  ledcSetup(GREEN_CH, 5000, 8);
+  ledcSetup(BLUE_CH, 5000, 8);
+  // Attachment is now conditional in monitorTask
   
   xTaskCreatePinnedToCore(uiTask, "UI", 4096, NULL, 1, NULL, 1); 
   // Lowered to 12KB to save heap for SSL (Supabase)
