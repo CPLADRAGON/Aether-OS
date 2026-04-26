@@ -44,7 +44,7 @@ export default function Dashboard() {
   const [timeframe, setTimeframe] = useState<Timeframe>('day');
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'sensors' | 'power'>('dashboard');
-  const [sessions, setSessions] = useState<{ duration: number, synced_at: string, start_time: number, boot_count: number, measure_count: number }[]>([]);
+  const [sessions, setSessions] = useState<{ duration: number, synced_at: string, start_time: number, boot_count: number, measure_count: number, sleep_interval?: number }[]>([]);
 
   useEffect(() => {
     fetchReadings();
