@@ -8,6 +8,7 @@ A high-performance, dual-core embedded system for real-time environmental monito
 
 AETHER_OS is engineered for maximum performance and Flash longevity through a custom-built binary storage engine.
 - **Binary NVS Structs**: Replaced heavy JSON strings with packed C-structs in Non-Volatile Storage. This eliminates parsing overhead and reduces Flash wear.
+- **Dynamic Sleep Intervals**: User-selectable power profiles (5m, 15m, 30m, 1h) toggleable directly from the main menu via long-press. Selection is persisted in binary NVS.
 - **Sub-500ms WiFi (Memory-Link)**: Uses BSSID pinning and static IP snapshots to bypass DHCP handshakes, achieving cloud connectivity in under 500ms from boot.
 - **Stealth Mode**: Intelligent early-boot LED and sensor management to minimize current draw and maximize battery life.
 - **Fail-Safe Log Queue**: A 10-entry cyclic binary queue ensures session data survives even if the device reboots while offline.
@@ -27,6 +28,7 @@ The AETHER Dashboard is a premium, glassmorphism-inspired Next.js application de
 
 ### Advanced Analytics Features:
 - **KPI Dashlets**: Real-time tracking of Accumulated Uptime, Mean Session Duration, and Device Lifecycle (Boot/Sync indices).
+- **Active Profile Badge**: Remote confirmation of the device's selected sleep interval (e.g., 15m Interval).
 - **Efficiency Index**: A performance metric calculated against an 18s ideal sync baseline.
 - **Session Volatility Index**: ECharts-powered bar charts highlighting network/sensor lag in amber/red if thresholds are exceeded.
 - **Uptime Accumulation Plot**: A "Cyan Glow" area chart showing the growth of tracked runtime over time.

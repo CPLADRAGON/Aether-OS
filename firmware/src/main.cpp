@@ -61,6 +61,7 @@ struct __attribute__((packed)) DeviceConfig {
   long offset = 28800;
   char city[16];
   uint32_t totalLifetimeRuntime = 0; // Total seconds
+  uint16_t sleepMinutes = 5;         // NEW: Default 5 min
 };
 
 struct __attribute__((packed)) SessionLog {
@@ -126,12 +127,21 @@ void loadConfig() {
   size_t len = preferences.getBytes("data", &config, sizeof(DeviceConfig));
   preferences.end();
   if (len != sizeof(DeviceConfig)) {
-    // Default values if not found
+    // Default values for new installation
     config.version = 1;
     config.ledEnabled = true;
     config.primSlot = 1;
     config.locationSynced = false;
-    strncpy(config.city, "UNKNOWN", 15);
+    config.sleepMinutes = 5;
+    config.totalLifetimeRuntime = 0;
+    saveConfig();
+    return;
+  }
+  
+  // Optional: Handle migration if structure changes but version stays 1
+  if (config.sleepMinutes == 0) {
+    config.sleepMinutes = 5;
+    saveConfig();
   }
 }
 
@@ -211,9 +221,9 @@ const unsigned char icon_pin[] PROGMEM = { 0x18, 0x3C, 0x3C, 0x18, 0x18, 0x18, 0
 const unsigned char icon_scan[] PROGMEM = { 0xFF, 0x81, 0xBD, 0xA5, 0xA5, 0xBD, 0x81, 0xFF }; // Sensor Scan
 
 // --- Menu Configuration ---
-enum MenuPage { PAGE_MEASURE, PAGE_TIME, PAGE_WEATHER, PAGE_LOCATE, PAGE_LED, PAGE_STATS, PAGE_PORTAL, PAGE_RESET, PAGE_SLEEP };
-const char* menuItems[] = {"MEASURE", "CLOCK", "WEATHER", "LOCATE", "LED", "STATS", "WIFI CFG", "RESET", "SLEEP"};
-const int TOTAL_MENU_ITEMS = 9;
+enum MenuPage { PAGE_MEASURE, PAGE_TIME, PAGE_WEATHER, PAGE_LOCATE, PAGE_LED, PAGE_INTERVAL, PAGE_STATS, PAGE_PORTAL, PAGE_RESET, PAGE_SLEEP };
+const int TOTAL_MENU_ITEMS = 10;
+const char* menuItems[] = {"MEASURE", "TIME", "WEATHER", "LOCATE", "LED", "INTERVAL", "STATS", "WIFI MENU", "RESET STATS", "DEEP SLEEP"};
 
 enum WiFiMenuPage { WF_PORTAL, WF_SELECT, WF_CLEAR, WF_BACK };
 const char* wifiMenuItems[] = {"PORTAL", "SET TARGET", "CLEAR", "BACK"};
@@ -280,10 +290,14 @@ void setLED(int r, int g, int b) {
 void toggleLED() {
   config.ledEnabled = !config.ledEnabled;
   saveConfig();
-  if (config.ledEnabled) setLED(0, 50, 100);
-  else {
-    ledcWrite(RED_CH, 0); ledcWrite(GREEN_CH, 0); ledcWrite(BLUE_CH, 0);
-  }
+}
+
+void cycleSleepInterval() {
+  if (config.sleepMinutes == 5) config.sleepMinutes = 15;
+  else if (config.sleepMinutes == 15) config.sleepMinutes = 30;
+  else if (config.sleepMinutes == 30) config.sleepMinutes = 60;
+  else config.sleepMinutes = 5;
+  saveConfig();
 }
 
 // Helper to wait while checking for ISR button events
@@ -1000,6 +1014,7 @@ void runMeasurementFlow(String trigger) {
               obj["duration"] = logQueue.logs[i].duration;
               obj["boot_count"] = bootCount;
               obj["measure_count"] = measureCount;
+              obj["sleep_interval"] = config.sleepMinutes;
             }
             String sessionBody; serializeJson(sessionDoc, sessionBody);
             int code = http.POST(sessionBody);
@@ -1110,6 +1125,14 @@ void drawMenu() {
         if (idx == PAGE_LED) {
           display.print("LED: ");
           display.print(config.ledEnabled ? "ON" : "OFF");
+        } else if (idx == PAGE_INTERVAL) {
+          display.print("SLEEP: ");
+          if (config.sleepMinutes < 60) {
+            display.print(config.sleepMinutes);
+            display.print("M");
+          } else {
+            display.print("1H");
+          }
         } else {
           display.print(menuItems[idx]);
         }
@@ -1173,7 +1196,8 @@ void enterDeepSleep() {
   time_t now; time(&now);
   appendSessionLog((uint32_t)now, (uint16_t)duration);
 
-  esp_sleep_enable_timer_wakeup(300 * 1000000ULL);
+  uint32_t sleepTime = (config.sleepMinutes > 0) ? config.sleepMinutes : 5;
+  esp_sleep_enable_timer_wakeup(sleepTime * 60 * 1000000ULL);
   esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_PIN, 0);
   esp_deep_sleep_start();
 }
@@ -1243,6 +1267,7 @@ void monitorTask(void *pvParameters) {
           else if (currentMenuIndex == PAGE_WEATHER) showWeatherPage();
           else if (currentMenuIndex == PAGE_LOCATE) runLocatePage();
           else if (currentMenuIndex == PAGE_LED) toggleLED();
+          else if (currentMenuIndex == PAGE_INTERVAL) cycleSleepInterval();
           else if (currentMenuIndex == PAGE_STATS) showStatsPage();
           else if (currentMenuIndex == PAGE_PORTAL) { currentState = SS_WIFI_MENU; currentWiFiMenuIndex = 0; }
           else if (currentMenuIndex == PAGE_RESET) runResetStats();
