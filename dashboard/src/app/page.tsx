@@ -566,38 +566,126 @@ export default function Dashboard() {
               <div className="grid grid-cols-12 gap-6 items-end">
                 <div className="col-span-12">
                   <h1 className="text-2xl md:text-3xl font-semibold text-on-surface uppercase tracking-tight">Runtime_Analytics</h1>
-                  <p className="text-[12px] text-cyan-400/70 uppercase tracking-[0.3em]">Device Longevity & Session Tracking</p>
+                  <p className="text-[12px] text-cyan-400/70 uppercase tracking-[0.3em]">Device Longevity & Sync Efficiency</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                 <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-cyan-400">
-                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Total Tracked Uptime</p>
-                    <p className="text-4xl font-black text-white">
-                      {sessions.reduce((acc, s) => acc + s.duration, 0) < 360 
-                        ? (sessions.reduce((acc, s) => acc + s.duration, 0) / 60).toFixed(1)
-                        : (sessions.reduce((acc, s) => acc + s.duration, 0) / 3600).toFixed(1)
-                      } 
-                      <span className="text-sm font-normal text-outline"> {sessions.reduce((acc, s) => acc + s.duration, 0) < 360 ? 'MIN' : 'HRS'}</span>
-                    </p>
-                 </div>
-                 <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-amber-400">
-                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Device Lifetime Boots</p>
-                    <p className="text-4xl font-black text-white">{Math.max(0, ...sessions.map(s => s.boot_count))} <span className="text-sm font-normal text-outline">BOOTS</span></p>
-                 </div>
-                 <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-purple-400">
-                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Avg Session Length</p>
-                    <p className="text-4xl font-black text-white">{(sessions.reduce((acc, s) => acc + s.duration, 0) / (sessions.length || 1) / 60).toFixed(0)} <span className="text-sm font-normal text-outline">MIN</span></p>
-                 </div>
+              {/* KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                {/* 1. Total Accumulated Runtime */}
+                <div className="glass-panel-heavy p-6 rounded-xl border-t-2 border-cyan-400">
+                  <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-2">Accumulated_Uptime</p>
+                  <p className="text-3xl font-black text-white font-mono">
+                    {(() => {
+                      const total = sessions.reduce((acc, s) => acc + s.duration, 0);
+                      const h = Math.floor(total / 3600).toString().padStart(2, '0');
+                      const m = Math.floor((total % 3600) / 60).toString().padStart(2, '0');
+                      const s = (total % 60).toString().padStart(2, '0');
+                      return `${h}:${m}:${s}`;
+                    })()}
+                  </p>
+                </div>
+
+                {/* 2. Mean Session Duration */}
+                <div className="glass-panel-heavy p-6 rounded-xl border-t-2 border-primary">
+                  <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-2">Mean_Session</p>
+                  <p className="text-3xl font-black text-white font-mono">
+                    {(sessions.reduce((acc, s) => acc + s.duration, 0) / (sessions.length || 1)).toFixed(1)}<span className="text-sm font-normal text-outline">s</span>
+                  </p>
+                </div>
+
+                {/* 3. Device Lifecycle */}
+                <div className="glass-panel-heavy p-6 rounded-xl border-t-2 border-amber-400">
+                  <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-2">Device_Lifecycle</p>
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <p className="text-2xl font-bold text-white">#{Math.max(0, ...sessions.map(s => s.boot_count))}</p>
+                      <p className="text-[9px] text-outline uppercase tracking-tighter">Boots</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-white">{Math.max(0, ...sessions.map(s => s.measure_count))}</p>
+                      <p className="text-[9px] text-outline uppercase tracking-tighter">Syncs</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. Efficiency Index */}
+                <div className="glass-panel-heavy p-6 rounded-xl border-t-2 border-green-400">
+                  <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-2">Efficiency_Index</p>
+                  <p className="text-3xl font-black text-green-400 font-mono">
+                    {(() => {
+                      const avg = sessions.reduce((acc, s) => acc + s.duration, 0) / (sessions.length || 1);
+                      return Math.min(100, Math.round((18 / avg) * 100));
+                    })()}%
+                  </p>
+                </div>
               </div>
 
+              {/* Charts Section */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <section className="glass-panel-heavy p-6 rounded-xl min-h-[350px]">
+                  <h2 className="text-[12px] font-bold text-primary uppercase tracking-widest mb-6">Session_Volatility_Index</h2>
+                  <ReactECharts
+                    style={{ height: '280px' }}
+                    option={{
+                      backgroundColor: 'transparent',
+                      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                      grid: { top: 20, left: 10, right: 10, bottom: 0, containLabel: true },
+                      xAxis: { type: 'category', data: sessions.slice(0, 20).reverse().map((_, i) => i + 1), axisLine: { show: false } },
+                      yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
+                      series: [{
+                        data: sessions.slice(0, 20).reverse().map(s => ({
+                          value: s.duration,
+                          itemStyle: { color: s.duration > 25 ? '#FBBF24' : '#00FFFF' }
+                        })),
+                        type: 'bar',
+                        barWidth: '60%',
+                        itemStyle: { borderRadius: [4, 4, 0, 0] }
+                      }]
+                    }}
+                  />
+                </section>
+
+                <section className="glass-panel-heavy p-6 rounded-xl min-h-[350px]">
+                  <h2 className="text-[12px] font-bold text-primary uppercase tracking-widest mb-6">Uptime_Accumulation_Plot</h2>
+                  <ReactECharts
+                    style={{ height: '280px' }}
+                    option={{
+                      backgroundColor: 'transparent',
+                      tooltip: { trigger: 'axis' },
+                      grid: { top: 20, left: 10, right: 10, bottom: 0, containLabel: true },
+                      xAxis: { type: 'category', data: sessions.slice(0, 20).reverse().map(s => new Date(s.synced_at).toLocaleTimeString()), show: false },
+                      yAxis: { type: 'value', splitLine: { show: false } },
+                      series: [{
+                        data: sessions.slice(0, 20).reverse().reduce((acc: number[], s: any, i: number) => {
+                          const prev = i > 0 ? acc[i-1] : 0;
+                          acc.push(prev + s.duration);
+                          return acc;
+                        }, []),
+                        type: 'line',
+                        smooth: true,
+                        symbol: 'none',
+                        lineStyle: { color: '#00FFFF', width: 3, shadowBlur: 10, shadowColor: '#00FFFF' },
+                        areaStyle: {
+                          color: {
+                            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                            colorStops: [{ offset: 0, color: 'rgba(0,255,255,0.3)' }, { offset: 1, color: 'rgba(0,255,255,0)' }]
+                          }
+                        }
+                      }]
+                    }}
+                  />
+                </section>
+              </div>
+
+              {/* Table Section */}
               <section className="glass-panel-heavy p-6 rounded-xl">
-                 <h2 className="text-xl font-medium text-primary uppercase tracking-tight mb-6">Session_History</h2>
+                 <h2 className="text-xl font-medium text-primary uppercase tracking-tight mb-6">Recent_Syncs</h2>
                  <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                        <thead>
                           <tr className="border-b border-white/10 text-[10px] text-outline tracking-widest uppercase">
-                             <th className="py-4 px-2">Timestamp</th>
+                             <th className="py-4 px-2">Timestamp (SGT)</th>
                              <th className="py-4 px-2">Duration</th>
                              <th className="py-4 px-2">Boot Index</th>
                              <th className="py-4 px-2">Sync Count</th>
@@ -608,16 +696,14 @@ export default function Dashboard() {
                           {sessions.map((s, idx) => (
                              <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                 <th className="py-4 px-2 font-normal text-slate-400">
-                                  {s.start_time > 1000000 
-                                    ? new Date(s.start_time * 1000).toLocaleString() 
-                                    : new Date(s.synced_at).toLocaleString()}
+                                  {new Date(s.synced_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}
                                 </th>
-                                <th className="py-4 px-2 text-cyan-400">{Math.floor(s.duration / 60)}m {s.duration % 60}s</th>
+                                <th className="py-4 px-2 text-cyan-400">{s.duration}s</th>
                                 <th className="py-4 px-2 text-amber-400">#{s.boot_count}</th>
                                 <th className="py-4 px-2 text-purple-400">{s.measure_count}</th>
                                 <th className="py-4 px-2">
                                    <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden">
-                                      <div className="h-full bg-green-400" style={{ width: `${Math.min(100, (s.measure_count / (s.duration/60 || 1)) * 100)}%` }}></div>
+                                      <div className="h-full bg-green-400" style={{ width: `${Math.min(100, (18 / s.duration) * 100)}%` }}></div>
                                    </div>
                                 </th>
                              </tr>
