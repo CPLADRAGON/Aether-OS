@@ -12,21 +12,25 @@ export async function POST(req: NextRequest) {
     if (body.callback_query) {
       const query = body.callback_query;
       const chatId = query.message.chat.id;
-      const data = query.data; // e.g., "report_day"
+      const data = query.data; 
       
-      let timeframe = 'day';
-      let limit = 24;
       let label = '24 Hours';
+      let hours = 24;
       
-      if (data === 'report_week') { timeframe = 'week'; limit = 168; label = '7 Days'; }
-      else if (data === 'report_month') { timeframe = 'month'; limit = 720; label = '30 Days'; }
-      else if (data === 'report_year') { timeframe = 'year'; limit = 8760; label = '1 Year'; }
+      if (data === 'report_week') { label = '7 Days'; hours = 168; }
+      else if (data === 'report_month') { label = '30 Days'; hours = 720; }
+      else if (data === 'report_year') { label = '1 Year'; hours = 8760; }
 
-      const { data: readings, error } = await supabase.from('room_readings').select('temperature,humidity').order('created_at', { ascending: false }).limit(limit);
+      const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+      const { data: readings, error } = await supabase
+        .from('room_readings')
+        .select('temperature,humidity')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false });
 
       let responseText = '';
       if (error || !readings || readings.length === 0) {
-        responseText = "⚠️ Error generating report or no data found.";
+        responseText = `⚠️ No data found for the last ${label}.`;
       } else {
         const avgT = readings.reduce((acc, r) => acc + r.temperature, 0) / readings.length;
         const avgH = readings.reduce((acc, r) => acc + r.humidity, 0) / readings.length;
@@ -109,15 +113,20 @@ export async function POST(req: NextRequest) {
 
     if (responseText) {
       console.log(`[Telegram Webhook] Sending response to ${chatId}...`);
+      const body: any = {
+        chat_id: chatId,
+        text: responseText,
+        parse_mode: 'Markdown'
+      };
+      
+      if (replyMarkup) {
+        body.reply_markup = replyMarkup;
+      }
+
       const telRes = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: responseText,
-          parse_mode: 'Markdown',
-          reply_markup: replyMarkup
-        }),
+        body: JSON.stringify(body),
       });
       const telData = await telRes.json();
       console.log('[Telegram Webhook] Telegram Response:', JSON.stringify(telData));
