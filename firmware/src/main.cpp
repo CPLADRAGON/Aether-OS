@@ -996,15 +996,19 @@ void runMeasurementFlow(String trigger) {
             JsonDocument sessionDoc;
             for (int i = 0; i < logQueue.count; i++) {
               JsonObject obj = sessionDoc.add<JsonObject>();
-              if (logQueue.logs[i].startTime > 1000000) { // Valid Epoch
-                obj["created_at"] = logQueue.logs[i].startTime;
-              }
+              obj["start_time"] = logQueue.logs[i].startTime;
               obj["duration"] = logQueue.logs[i].duration;
               obj["boot_count"] = bootCount;
               obj["measure_count"] = measureCount;
             }
             String sessionBody; serializeJson(sessionDoc, sessionBody);
-            if (http.POST(sessionBody) >= 200) clearLogQueue();
+            int code = http.POST(sessionBody);
+            if (code >= 200 && code < 300) {
+              logQueue.count = 0;
+              preferences.begin("logs_v2", false);
+              preferences.putBytes("queue", &logQueue, sizeof(LogQueue));
+              preferences.end();
+            }
           }
         }
         
