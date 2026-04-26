@@ -572,12 +572,18 @@ export default function Dashboard() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                  <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-cyan-400">
-                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Total Lifetime Uptime</p>
-                    <p className="text-4xl font-black text-white">{(sessions.reduce((acc, s) => acc + s.duration, 0) / 3600).toFixed(1)} <span className="text-sm font-normal text-outline">HRS</span></p>
+                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Total Tracked Uptime</p>
+                    <p className="text-4xl font-black text-white">
+                      {sessions.reduce((acc, s) => acc + s.duration, 0) < 360 
+                        ? (sessions.reduce((acc, s) => acc + s.duration, 0) / 60).toFixed(1)
+                        : (sessions.reduce((acc, s) => acc + s.duration, 0) / 3600).toFixed(1)
+                      } 
+                      <span className="text-sm font-normal text-outline"> {sessions.reduce((acc, s) => acc + s.duration, 0) < 360 ? 'MIN' : 'HRS'}</span>
+                    </p>
                  </div>
                  <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-amber-400">
-                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Total Boot Count</p>
-                    <p className="text-4xl font-black text-white">{sessions.length} <span className="text-sm font-normal text-outline">CYCLES</span></p>
+                    <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Device Lifetime Boots</p>
+                    <p className="text-4xl font-black text-white">{Math.max(0, ...sessions.map(s => s.boot_count))} <span className="text-sm font-normal text-outline">BOOTS</span></p>
                  </div>
                  <div className="glass-panel-heavy p-6 rounded-xl border-l-4 border-purple-400">
                     <p className="text-[10px] text-outline font-bold tracking-widest uppercase mb-1">Avg Session Length</p>
