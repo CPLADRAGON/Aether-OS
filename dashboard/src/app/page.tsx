@@ -564,9 +564,16 @@ export default function Dashboard() {
           {activeTab === 'power' && (
             <div className="flex flex-col gap-8">
               <div className="grid grid-cols-12 gap-6 items-end">
-                <div className="col-span-12">
+                <div className="col-span-12 md:col-span-8">
                   <h1 className="text-2xl md:text-3xl font-semibold text-on-surface uppercase tracking-tight">Runtime_Analytics</h1>
                   <p className="text-[12px] text-cyan-400/70 uppercase tracking-[0.3em]">Device Longevity & Sync Efficiency</p>
+                </div>
+                <div className="col-span-12 md:col-span-4 md:text-right">
+                  <div className="inline-block px-3 py-1 bg-cyan-400/10 border border-cyan-400/20 rounded-full">
+                    <p className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
+                      Active Profile: {sessions[0]?.sleep_interval || 5}m Interval
+                    </p>
+                  </div>
                 </div>
               </div>
 
