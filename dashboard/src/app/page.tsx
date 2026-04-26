@@ -44,7 +44,7 @@ export default function Dashboard() {
   const [timeframe, setTimeframe] = useState<Timeframe>('day');
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'sensors' | 'power'>('dashboard');
-  const [sessions, setSessions] = useState<{ duration: number, created_at: string, boot_count: number, measure_count: number }[]>([]);
+  const [sessions, setSessions] = useState<{ duration: number, synced_at: string, start_time: number, boot_count: number, measure_count: number }[]>([]);
 
   useEffect(() => {
     fetchReadings();
@@ -52,7 +52,11 @@ export default function Dashboard() {
   }, [timeframe, activeTab]);
 
   async function fetchSessions() {
-    const { data } = await supabase.from('device_sessions').select('*').order('created_at', { ascending: false }).limit(50);
+    const { data } = await supabase
+      .from('device_sessions')
+      .select('*')
+      .order('synced_at', { ascending: false })
+      .limit(100);
     if (data) setSessions(data);
   }
   useEffect(() => {
@@ -597,13 +601,17 @@ export default function Dashboard() {
                        <tbody className="text-xs font-mono">
                           {sessions.map((s, idx) => (
                              <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                                <th className="py-4 px-2 font-normal text-slate-400">{new Date(s.created_at).toLocaleString()}</th>
+                                <th className="py-4 px-2 font-normal text-slate-400">
+                                  {s.start_time > 1000000 
+                                    ? new Date(s.start_time * 1000).toLocaleString() 
+                                    : new Date(s.synced_at).toLocaleString()}
+                                </th>
                                 <th className="py-4 px-2 text-cyan-400">{Math.floor(s.duration / 60)}m {s.duration % 60}s</th>
                                 <th className="py-4 px-2 text-amber-400">#{s.boot_count}</th>
                                 <th className="py-4 px-2 text-purple-400">{s.measure_count}</th>
                                 <th className="py-4 px-2">
                                    <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden">
-                                      <div className="h-full bg-green-400" style={{ width: `${Math.min(100, (s.measure_count / (s.duration/60)) * 100)}%` }}></div>
+                                      <div className="h-full bg-green-400" style={{ width: `${Math.min(100, (s.measure_count / (s.duration/60 || 1)) * 100)}%` }}></div>
                                    </div>
                                 </th>
                              </tr>
