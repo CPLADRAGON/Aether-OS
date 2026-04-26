@@ -4,88 +4,66 @@ A high-performance, dual-core embedded system for real-time environmental monito
 
 ![AETHER_OS UI Philosophy](docs/pics/aether_ui_design_philosophy.png)
 
+## Performance Engine: "Zero-Wait" Architecture
+
+AETHER_OS is engineered for maximum performance and Flash longevity through a custom-built binary storage engine.
+- **Binary NVS Structs**: Replaced heavy JSON strings with packed C-structs in Non-Volatile Storage. This eliminates parsing overhead and reduces Flash wear.
+- **Sub-500ms WiFi (Memory-Link)**: Uses BSSID pinning and static IP snapshots to bypass DHCP handshakes, achieving cloud connectivity in under 500ms from boot.
+- **Stealth Mode**: Intelligent early-boot LED and sensor management to minimize current draw and maximize battery life.
+- **Fail-Safe Log Queue**: A 10-entry cyclic binary queue ensures session data survives even if the device reboots while offline.
+
+## Aether Telegram Report Center
+
+The system is paired with an interactive Telegram mascot that provides real-time access to your environmental data.
+- **Interactive Reports**: Request 24-hour, 7-day, 30-day, or 1-year environmental summaries via inline buttons.
+- **Efficiency Index**: Real-time reporting on the device's sync efficiency and network latency.
+- **Mascot Persona**: A custom-themed interactive bot that acts as your system's digital companion.
+
+## Digital Twin Dashboard 2.0
+
+The AETHER Dashboard is a premium, glassmorphism-inspired Next.js application designed for strict dark mode aesthetics.
+
+![AETHER_OS Dashboard](docs/pics/dashboard_screenshot.png)
+
+### Advanced Analytics Features:
+- **KPI Dashlets**: Real-time tracking of Accumulated Uptime, Mean Session Duration, and Device Lifecycle (Boot/Sync indices).
+- **Efficiency Index**: A performance metric calculated against an 18s ideal sync baseline.
+- **Session Volatility Index**: ECharts-powered bar charts highlighting network/sensor lag in amber/red if thresholds are exceeded.
+- **Uptime Accumulation Plot**: A "Cyan Glow" area chart showing the growth of tracked runtime over time.
+- **Singapore Time (SGT) Sync**: All data is automatically localized for SGT (UTC+8) synchronization.
+
 ## System Architecture
 
 AETHER_OS utilizes a distributed computing model to ensure UI responsiveness never compromises sensor precision or network reliability.
 
 ### Dual-Core Processing Logic
-The firmware is partitioned into two distinct execution environments:
-
-1.  **The Painter Core (Core 0)**: Dedicated to the "Liquid UI" engine. It manages high-frequency display updates, mechanical animations (rotating spinners, pulsing icons), and the SSD1306 OLED interface. By isolating the UI on its own core, the interface remains smooth even during blocking network operations.
-2.  **The Worker Core (Core 1)**: Handles the heavy-duty telemetry tasks. This includes I2C sensor sampling (BME280/AHT20), WiFi handshaking, NTP time synchronization, and secure HTTP POST requests to the Supabase Edge functions.
-
-![Digital Twin Concept](docs/pics/aether_digital_twin_concept.png)
-
-## Core Functional Modules
-
-### 1. Environmental Intelligence
-The system continuously monitors ambient conditions with high precision.
-- **Sensor Fusion**: Multi-stage sampling to filter out transient noise.
-- **Meteorological Tracking**: Real-time integration with OpenWeatherMap API to provide local context (Condition, Outside Temp, Humidity).
-- **Temporal Engine**: Precision NTP synchronization configured for SGP pools, maintaining a sub-second accurate digital clock.
-
-### 2. Neural Sync (Cloud Integration)
-Data is pushed to a high-availability Supabase backend via a RESTful API.
-- **Telemetry Bursts**: Samples are packaged into JSON payloads for efficient cloud ingestion.
-- **Location Awareness**: Automatic IP-based geolocation to anchor data points to specific geographic regions (Singapore).
-- **Status Persistence**: Tracks system health metrics including boot counts and uptime.
-
-![UI States Showcase](docs/pics/aether_ui_states_showcase.png)
-
-### 3. Liquid UI Interface
-Designed for the 0.66" OLED display (64x48 resolution), the UI features a "Liquid" state-machine:
-- **Main Command**: Interactive menu for selecting active modules.
-- **Clock & Weather**: Real-time context powered by NTP and OpenWeatherMap.
-- **WiFi Profile Manager**: Scrollable 5-slot manager with `[*]` primary indicator and long-press locking.
-- **Mechanical Spinner**: Real-time visual feedback for asynchronous networking tasks.
-
-### 4. Deterministic Networking
-The AETHER_OS WiFi stack is engineered for speed and reliability:
-- **Strict Primary Logic**: Deterministic targeting of a manually selected "Primary Slot" for sub-second boot-to-sync times.
-- **Memory-Link (Fast-Track)**: NVS-backed static IP snapshots and BSSID pinning to bypass DHCP handshakes.
-- **Interruptible UX**: Global "Escape Hatch" allows users to abort stalled connection attempts with a single button click.
-- **Verbose Diagnostics**: Real-time status reporting for `NO SIGNAL`, `AUTH FAIL`, and `TIMEOUT` events.
-
-## Digital Twin Dashboard
-
-The project includes a full-stack Next.js web application that visualizes telemetry data in a premium, glassmorphism-inspired interface.
-
-![AETHER_OS Dashboard](docs/pics/dashboard_screenshot.png)
-
-### Dashboard Features
-- **Real-Time Visualization**: Instant updates as data flows from the hardware.
-- **Historical Trending**: Interactive charts showing temperature and humidity fluctuations over time.
-- **Responsive Layout**: Optimized for both high-resolution desktop monitors and mobile devices.
+1.  **The Painter Core (Core 0)**: Dedicated to the "Liquid UI" engine. It manages high-frequency display updates, mechanical animations, and the SSD1306 OLED interface.
+2.  **The Worker Core (Core 1)**: Handles telemetry tasks, including I2C sensor sampling, binary NVS management, and secure SSL/TLS communication with Supabase.
 
 ## Technical Specifications
 
-- **Hardware**: ESP32 Dual-Core MCU (240MHz)
-- **Sensors**: DHT11 (Temp/Hum), MPU6050 (Motion/Tilt)
-- **Display**: 0.66" SSD1306 OLED (I2C with 16px offset)
-- **Memory Management**: Optimized 12KB Task Stacks to ensure SSL/TLS heap headroom (~40KB+ free).
-- **Backend**: Supabase (PostgreSQL + Edge Functions)
-- **Frontend**: Next.js 14, Tailwind CSS, Framer Motion
-- **Time Sync**: SNTP (pool.ntp.org) with Geo-IP timezone offset.
+- **MCU**: ESP32 Dual-Core (240MHz) with NVS Binary Struct Optimization.
+- **Sensors**: DHT11 (Temp/Hum), MPU6050 (Motion/Tilt).
+- **Cloud Interface**: Supabase REST API (PostgreSQL) with Row-Level Security (RLS).
+- **Telegram Logic**: Next.js API Routes (Vercel) with Webhook Integration.
+- **Visualization**: Next.js 14, Tailwind CSS, ECharts-for-React, Framer Motion.
+- **Power Management**: ESP32 Deep Sleep (Timer/Ext0 Wakeup) with Runtime Tracking.
+
 ---
 
 ## Getting Started
 
-Ready to build your own AETHER_OS unit? Follow our comprehensive **[Deployment & DIY Guide](DEPLOYMENT.md)** for:
-- Full hardware shopping list and wiring schematics.
-- Supabase database initialization scripts.
-- Firmware configuration and flashing instructions.
-- Dashboard deployment on Vercel.
+Follow our comprehensive [Deployment & DIY Guide](DEPLOYMENT.md) to build your own unit.
 
 ### Quick Start
 1. **Clone**: `git clone https://github.com/your-username/AETHER_OS.git`
-2. **Backend**: Run `supabase_schema.sql` in your Supabase project.
-3. **Configure**: Update `firmware/include/secrets.h` with your credentials.
+2. **Backend**: Run `supabase_schema.sql` in your Supabase SQL Editor.
+3. **Configure**: Update `firmware/include/secrets.h` and `.env.local`.
 4. **Flash**: Upload via PlatformIO.
-5. **Visualize**: Deploy the `dashboard` to see your data live.
+5. **Monitor**: Access your dashboard or interact via the Telegram bot.
 
 ## Development Environment
 
-The firmware is built using the PlatformIO ecosystem within VS Code.
-- **Framework**: Arduino
-- **Libraries**: Adafruit SSD1306, Adafruit GFX, ArduinoJson, HTTPClient
-- **Dashboard**: React-based dashboard with custom glassmorphism styling.
+Built using the PlatformIO ecosystem within VS Code.
+- **Framework**: Arduino / ESP-IDF
+- **Dashboard**: React 18+ with strict TypeScript and Tailwind CSS.
