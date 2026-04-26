@@ -36,7 +36,7 @@ interface DeviceLog {
 }
 
 type Timeframe = 'day' | 'week' | 'month' | 'year';
-
+export default function Dashboard() {
   const [readings, setReadings] = useState<Reading[]>([]);
   const [latest, setLatest] = useState<Reading | null>(null);
   const [logs, setLogs] = useState<DeviceLog[]>([]);
@@ -55,6 +55,7 @@ type Timeframe = 'day' | 'week' | 'month' | 'year';
     const { data } = await supabase.from('device_sessions').select('*').order('created_at', { ascending: false }).limit(50);
     if (data) setSessions(data);
   }
+  useEffect(() => {
     fetchLogs();
     const channel = supabase
       .channel('live_updates')
