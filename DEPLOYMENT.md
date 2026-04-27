@@ -39,8 +39,8 @@ AETHER_OS uses Supabase for data storage and the Digital Twin dashboard.
 1.  **Create Project**: Sign up at [supabase.com](https://supabase.com) and create a new project.
 2.  **Initialize Database**:
     - Go to the **SQL Editor** in the Supabase dashboard.
-    - Copy the contents of `supabase_schema.sql` from this repository and run it.
-    - This creates the `room_readings` and `device_logs` tables with the necessary RLS (Row Level Security) policies.
+    - Copy the contents of `supabase_schema.sql` from the root of this repository and run it.
+    - This creates the `room_readings`, `device_sessions`, and `device_logs` tables with all necessary security policies.
 3.  **Get API Credentials**:
     - Go to **Project Settings** > **API**.
     - Copy the **Project URL** and the **anon public** API key.
@@ -53,8 +53,8 @@ The firmware is managed using **PlatformIO**.
 
 1.  **Clone the Repository**:
     ```bash
-    git clone <your-repo-url>
-    cd ESP32RoomMonitor/firmware
+    git clone https://github.com/CPLADRAGON/Aether-OS.git
+    cd Aether-OS/firmware
     ```
 2.  **Configure Secrets**:
     - Navigate to `include/secrets.h`.
