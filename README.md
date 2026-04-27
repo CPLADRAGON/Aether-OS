@@ -73,7 +73,7 @@ Follow our comprehensive [Deployment & DIY Guide](DEPLOYMENT.md) to build your o
 
 ### Quick Start
 
-1. **Clone**: `git clone https://github.com/your-username/AETHER_OS.git`
+1. **Clone**: `git clone https://github.com/CPLADRAGON/Aether-OS.git`
 2. **Backend**: Run `supabase_schema.sql` in your Supabase SQL Editor.
 3. **Configure**: Update `firmware/include/secrets.h` and `.env.local`.
 4. **Flash**: Upload via PlatformIO.
