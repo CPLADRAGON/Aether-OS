@@ -449,6 +449,58 @@ export default function Dashboard() {
     );
   }
 
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(s => {
+      const d = new Date(s.synced_at);
+      return d >= timeRange.start && d <= timeRange.end;
+    });
+  }, [sessions, timeRange]);
+
+  const periodNavigation = (
+    <div className="flex items-center gap-2">
+      <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
+        <button 
+          onClick={() => shiftPeriod(-1)} 
+          disabled={!canGoBackward}
+          className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${!canGoBackward ? 'text-white/20 cursor-not-allowed' : 'text-cyan-400 hover:bg-cyan-400/10'}`}
+        >
+          <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+        </button>
+        <div className="relative flex items-center justify-center min-w-[100px] md:min-w-[130px]">
+          <button 
+            onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+            className="flex items-center gap-1 hover:text-cyan-400 transition-colors"
+          >
+            <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+            <span className="text-[10px] text-cyan-50 tracking-widest font-mono uppercase">{periodLabel}</span>
+          </button>
+          {isDatePickerOpen && (
+            <DatePicker 
+              mode={timeframe} 
+              selectedDate={referenceDate} 
+              minDate={oldestDate} 
+              onSelect={(d) => setReferenceDate(d)} 
+              onClose={() => setIsDatePickerOpen(false)} 
+            />
+          )}
+        </div>
+        <button 
+          onClick={() => shiftPeriod(1)} 
+          disabled={!canGoForward} 
+          className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${!canGoForward ? 'text-white/20 cursor-not-allowed' : 'text-cyan-400 hover:bg-cyan-400/10'}`}
+        >
+          <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+        </button>
+      </div>
+      <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
+        <TimeToggle label="DAY" active={timeframe === 'day'} onClick={() => {setTimeframe('day'); setReferenceDate(new Date());}} />
+        <TimeToggle label="WEEK" active={timeframe === 'week'} onClick={() => {setTimeframe('week'); setReferenceDate(new Date());}} />
+        <TimeToggle label="MONTH" active={timeframe === 'month'} onClick={() => {setTimeframe('month'); setReferenceDate(new Date());}} />
+        <TimeToggle label="YEAR" active={timeframe === 'year'} onClick={() => {setTimeframe('year'); setReferenceDate(new Date());}} />
+      </div>
+    </div>
+  );
+
   return (
     <div className="selection:bg-primary-container selection:text-on-primary-container min-h-screen text-on-surface transition-colors duration-1000" style={bgStyle}>
       {/* Top Navigation */}
@@ -579,46 +631,7 @@ export default function Dashboard() {
                         <p className="text-[10px] text-outline tracking-wider uppercase">Multi-Sensor Overlay</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
-                          <button 
-                            onClick={() => shiftPeriod(-1)} 
-                            disabled={!canGoBackward}
-                            className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${!canGoBackward ? 'text-white/20 cursor-not-allowed' : 'text-cyan-400 hover:bg-cyan-400/10'}`}
-                          >
-                            <span className="material-symbols-outlined text-[16px]">chevron_left</span>
-                          </button>
-                          <div className="relative flex items-center justify-center min-w-[100px] md:min-w-[130px]">
-                            <button 
-                              onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-                              className="flex items-center gap-1 hover:text-cyan-400 transition-colors"
-                            >
-                              <span className="material-symbols-outlined text-[14px]">calendar_today</span>
-                              <span className="text-[10px] text-cyan-50 tracking-widest font-mono uppercase">{periodLabel}</span>
-                            </button>
-                            {isDatePickerOpen && (
-                              <DatePicker 
-                                mode={timeframe} 
-                                selectedDate={referenceDate} 
-                                minDate={oldestDate} 
-                                onSelect={(d) => setReferenceDate(d)} 
-                                onClose={() => setIsDatePickerOpen(false)} 
-                              />
-                            )}
-                          </div>
-                          <button 
-                            onClick={() => shiftPeriod(1)} 
-                            disabled={!canGoForward} 
-                            className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${!canGoForward ? 'text-white/20 cursor-not-allowed' : 'text-cyan-400 hover:bg-cyan-400/10'}`}
-                          >
-                            <span className="material-symbols-outlined text-[16px]">chevron_right</span>
-                          </button>
-                        </div>
-                        <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
-                          <TimeToggle label="DAY" active={timeframe === 'day'} onClick={() => {setTimeframe('day'); setReferenceDate(new Date());}} />
-                          <TimeToggle label="WEEK" active={timeframe === 'week'} onClick={() => {setTimeframe('week'); setReferenceDate(new Date());}} />
-                          <TimeToggle label="MONTH" active={timeframe === 'month'} onClick={() => {setTimeframe('month'); setReferenceDate(new Date());}} />
-                          <TimeToggle label="YEAR" active={timeframe === 'year'} onClick={() => {setTimeframe('year'); setReferenceDate(new Date());}} />
-                        </div>
+                        {periodNavigation}
                       </div>
                     </div>
                     
@@ -764,10 +777,10 @@ export default function Dashboard() {
                       backgroundColor: 'transparent',
                       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
                       grid: { top: 20, left: 10, right: 10, bottom: 0, containLabel: true },
-                      xAxis: { type: 'category', data: sessions.slice(0, 20).reverse().map((_, i) => i + 1), axisLine: { show: false } },
+                      xAxis: { type: 'category', data: filteredSessions.slice(0, 20).reverse().map((_, i) => i + 1), axisLine: { show: false } },
                       yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } } },
                       series: [{
-                        data: sessions.slice(0, 20).reverse().map(s => ({
+                        data: filteredSessions.slice(0, 20).reverse().map(s => ({
                           value: s.duration,
                           itemStyle: { color: s.duration > 25 ? '#FBBF24' : '#00FFFF' }
                         })),
@@ -787,10 +800,10 @@ export default function Dashboard() {
                       backgroundColor: 'transparent',
                       tooltip: { trigger: 'axis' },
                       grid: { top: 20, left: 10, right: 10, bottom: 0, containLabel: true },
-                      xAxis: { type: 'category', data: sessions.slice(0, 20).reverse().map(s => new Date(s.synced_at).toLocaleTimeString()), show: false },
+                      xAxis: { type: 'category', data: filteredSessions.slice(0, 20).reverse().map(s => new Date(s.synced_at).toLocaleTimeString()), show: false },
                       yAxis: { type: 'value', splitLine: { show: false } },
                       series: [{
-                        data: sessions.slice(0, 20).reverse().reduce((acc: number[], s: any, i: number) => {
+                        data: filteredSessions.slice(0, 20).reverse().reduce((acc: number[], s: any, i: number) => {
                           const prev = i > 0 ? acc[i-1] : 0;
                           acc.push(prev + s.duration);
                           return acc;
@@ -813,7 +826,10 @@ export default function Dashboard() {
 
               {/* Table Section */}
               <section className="glass-panel-heavy p-6 rounded-xl">
-                 <h2 className="text-xl font-medium text-primary uppercase tracking-tight mb-6">Recent_Syncs</h2>
+                 <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
+                   <h2 className="text-xl font-medium text-primary uppercase tracking-tight">Recent_Syncs</h2>
+                   {periodNavigation}
+                 </div>
                  <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                        <thead>
@@ -826,7 +842,7 @@ export default function Dashboard() {
                           </tr>
                        </thead>
                        <tbody className="text-xs font-mono">
-                          {sessions.map((s, idx) => (
+                          {filteredSessions.map((s, idx) => (
                              <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                 <th className="py-4 px-2 font-normal text-slate-400">
                                   {new Date(s.synced_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}
