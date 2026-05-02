@@ -438,6 +438,13 @@ export default function Dashboard() {
      return { backgroundColor: `rgb(${r}, ${g}, ${b})` };
   }, [latest]);
 
+  const filteredSessions = useMemo(() => {
+    return sessions.filter(s => {
+      const d = new Date(s.synced_at);
+      return d >= timeRange.start && d <= timeRange.end;
+    });
+  }, [sessions, timeRange]);
+
   if (loading && readings.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center transition-colors duration-1000" style={bgStyle}>
@@ -448,13 +455,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const filteredSessions = useMemo(() => {
-    return sessions.filter(s => {
-      const d = new Date(s.synced_at);
-      return d >= timeRange.start && d <= timeRange.end;
-    });
-  }, [sessions, timeRange]);
 
   const periodNavigation = (
     <div className="flex items-center gap-2">
