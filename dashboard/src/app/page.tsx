@@ -120,6 +120,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchReadings();
+    fetchLogs();
     if (activeTab === 'power') fetchSessions();
   }, [timeRange, activeTab]);
 
@@ -128,11 +129,10 @@ export default function Dashboard() {
       .from('device_sessions')
       .select('*')
       .order('synced_at', { ascending: false })
-      .limit(100);
+      .limit(5000);
     if (data) setSessions(data);
   }
   useEffect(() => {
-    fetchLogs();
     
     async function fetchOldestDate() {
       const { data } = await supabase
@@ -168,8 +168,10 @@ export default function Dashboard() {
     const { data } = await supabase
       .from('device_logs')
       .select('*')
+      .gte('created_at', timeRange.start.toISOString())
+      .lte('created_at', timeRange.end.toISOString())
       .order('created_at', { ascending: false })
-      .limit(50);
+      .limit(200);
     if (data) setLogs(data);
   }
 
