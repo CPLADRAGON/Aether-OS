@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
+import DatePicker from '@/components/DatePicker';
 
 // Polyfill for crypto.randomUUID (Required for non-secure IP access)
 if (typeof window !== 'undefined' && !window.crypto.randomUUID) {
@@ -42,14 +43,85 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<DeviceLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<Timeframe>('day');
+  const [referenceDate, setReferenceDate] = useState<Date>(new Date());
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+  const [oldestDate, setOldestDate] = useState<Date | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [activeTab, setActiveTab] = useState<'dashboard' | 'sensors' | 'power'>('dashboard');
   const [sessions, setSessions] = useState<{ duration: number, synced_at: string, start_time: number, boot_count: number, measure_count: number, sleep_interval?: number }[]>([]);
 
+  const timeRange = useMemo(() => {
+    const start = new Date(referenceDate);
+    const end = new Date(referenceDate);
+    
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+
+    if (timeframe === 'week') {
+      let currentDay = start.getDay();
+      if (currentDay === 0) currentDay = 7; // Make Monday=1, Sunday=7
+      start.setDate(start.getDate() - currentDay + 1);
+      end.setDate(start.getDate() + 6);
+    } else if (timeframe === 'month') {
+      start.setDate(1);
+      end.setFullYear(start.getFullYear(), start.getMonth() + 1, 0);
+    } else if (timeframe === 'year') {
+      start.setMonth(0, 1);
+      end.setFullYear(start.getFullYear(), 11, 31);
+    }
+
+    return { start, end };
+  }, [timeframe, referenceDate]);
+
+  const isCurrentPeriod = useMemo(() => {
+    const now = new Date();
+    return now >= timeRange.start && now <= timeRange.end;
+  }, [timeRange]);
+
+  const canGoForward = useMemo(() => {
+    const nextStart = new Date(timeRange.end);
+    nextStart.setMilliseconds(nextStart.getMilliseconds() + 1);
+    return nextStart <= new Date(); 
+  }, [timeRange]);
+
+  const canGoBackward = useMemo(() => {
+    if (!oldestDate) return true;
+    return timeRange.start > oldestDate;
+  }, [timeRange, oldestDate]);
+
+  const shiftPeriod = (direction: -1 | 1) => {
+    setReferenceDate(prev => {
+      const d = new Date(prev);
+      if (timeframe === 'day') d.setDate(d.getDate() + direction);
+      else if (timeframe === 'week') d.setDate(d.getDate() + (direction * 7));
+      else if (timeframe === 'month') d.setMonth(d.getMonth() + direction);
+      else if (timeframe === 'year') d.setFullYear(d.getFullYear() + direction);
+      return d;
+    });
+  };
+
+  const periodLabel = useMemo(() => {
+    const start = timeRange.start;
+    if (timeframe === 'day') {
+      if (isCurrentPeriod) return 'TODAY';
+      return start.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
+    } else if (timeframe === 'week') {
+      const end = timeRange.end;
+      if (isCurrentPeriod) return 'THIS WEEK';
+      return `${start.toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-SG', { month: 'short', day: 'numeric', year: 'numeric' })}`.toUpperCase();
+    } else if (timeframe === 'month') {
+      if (isCurrentPeriod) return 'THIS MONTH';
+      return start.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', year: 'numeric' }).toUpperCase();
+    } else if (timeframe === 'year') {
+      if (isCurrentPeriod) return 'THIS YEAR';
+      return start.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', year: 'numeric' });
+    }
+  }, [timeRange, timeframe, isCurrentPeriod]);
+
   useEffect(() => {
     fetchReadings();
     if (activeTab === 'power') fetchSessions();
-  }, [timeframe, activeTab]);
+  }, [timeRange, activeTab]);
 
   async function fetchSessions() {
     const { data } = await supabase
@@ -61,6 +133,19 @@ export default function Dashboard() {
   }
   useEffect(() => {
     fetchLogs();
+    
+    async function fetchOldestDate() {
+      const { data } = await supabase
+        .from('room_readings')
+        .select('created_at')
+        .order('created_at', { ascending: true })
+        .limit(1);
+      if (data && data.length > 0) {
+        setOldestDate(new Date(data[0].created_at));
+      }
+    }
+    fetchOldestDate();
+
     const channel = supabase
       .channel('live_updates')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'room_readings' }, (payload) => {
@@ -98,16 +183,12 @@ export default function Dashboard() {
 
   async function fetchReadings() {
     setLoading(true);
-    const startDate = new Date();
-    if (timeframe === 'day') startDate.setDate(startDate.getDate() - 1);
-    else if (timeframe === 'week') startDate.setDate(startDate.getDate() - 7);
-    else if (timeframe === 'month') startDate.setMonth(startDate.getMonth() - 1);
-    else if (timeframe === 'year') startDate.setFullYear(startDate.getFullYear() - 1);
 
     const { data, error } = await supabase
       .from('room_readings')
       .select('*')
-      .gte('created_at', startDate.toISOString())
+      .gte('created_at', timeRange.start.toISOString())
+      .lte('created_at', timeRange.end.toISOString())
       .order('created_at', { ascending: true })
       .limit(1000); 
 
@@ -240,7 +321,7 @@ export default function Dashboard() {
            return tooltipText;
         }
       },
-      grid: { left: '3%', right: '4%', bottom: '3%', top: '10%', containLabel: true },
+      grid: { left: '3%', right: 80, bottom: '3%', top: '10%', containLabel: true },
       xAxis: {
         type: 'time',
         boundaryGap: false,
@@ -257,30 +338,36 @@ export default function Dashboard() {
              return d.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', year: 'numeric' });
           }
         },
-        min: () => {
-          const start = new Date();
-          if (timeframe === 'day') start.setDate(start.getDate() - 1);
-          else if (timeframe === 'week') start.setDate(start.getDate() - 7);
-          else if (timeframe === 'month') start.setMonth(start.getMonth() - 1);
-          else if (timeframe === 'year') start.setFullYear(start.getFullYear() - 1);
-          return start.getTime();
-        },
-        max: () => new Date().getTime()
+        min: timeRange.start.getTime(),
+        max: timeRange.end.getTime()
       },
       yAxis: [
         {
           type: 'value',
           name: '',
           splitLine: { lineStyle: { type: 'dashed', color: 'rgba(255,255,255,0.05)' } },
-          axisLabel: { color: '#849495', fontSize: 10 },
-          min: 'dataMin'
+          axisLabel: { color: '#00f3ff', fontSize: 10, formatter: (val: number) => `${val.toFixed(1)}°C` },
+          min: 'dataMin',
+          max: 'dataMax'
         },
         {
           type: 'value',
           name: '',
           position: 'right',
           splitLine: { show: false },
-          axisLabel: { color: '#849495', fontSize: 10, formatter: '{value} LUX' }
+          axisLabel: { color: '#ff00ff', fontSize: 10, formatter: (val: number) => `${val.toFixed(1)}%` },
+          min: 'dataMin',
+          max: 'dataMax'
+        },
+        {
+          type: 'value',
+          name: '',
+          position: 'right',
+          offset: 50,
+          splitLine: { show: false },
+          axisLabel: { color: '#a4f200', fontSize: 10, formatter: (val: number) => `${val.toFixed(0)}lx` },
+          min: 0,
+          max: 'dataMax'
         }
       ],
       series: [
@@ -301,6 +388,7 @@ export default function Dashboard() {
           name: 'Humidity',
           type: 'line',
           smooth: true,
+          yAxisIndex: 1,
           areaStyle: {
             color: {
               type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
@@ -316,7 +404,7 @@ export default function Dashboard() {
           name: 'Light',
           type: 'line',
           step: 'end',
-          yAxisIndex: 1,
+          yAxisIndex: 2,
           data: readings.map(r => [new Date(r.created_at).getTime(), r.ldr_value]),
           itemStyle: { color: '#a4f200' },
           lineStyle: { width: 1, opacity: 0.7 },
@@ -330,7 +418,7 @@ export default function Dashboard() {
         }
       ]
     };
-  }, [readings]);
+  }, [readings, timeRange]);
 
   const lastUpdateStr = latest 
     ? new Date(latest.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) 
@@ -488,11 +576,47 @@ export default function Dashboard() {
                         <h2 className="text-2xl font-medium text-primary uppercase tracking-tight">Trend_Analysis</h2>
                         <p className="text-[10px] text-outline tracking-wider uppercase">Multi-Sensor Overlay</p>
                       </div>
-                      <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
-                        <TimeToggle label="24H" active={timeframe === 'day'} onClick={() => setTimeframe('day')} />
-                        <TimeToggle label="7D" active={timeframe === 'week'} onClick={() => setTimeframe('week')} />
-                        <TimeToggle label="30D" active={timeframe === 'month'} onClick={() => setTimeframe('month')} />
-                        <TimeToggle label="1Y" active={timeframe === 'year'} onClick={() => setTimeframe('year')} />
+                      <div className="flex items-center gap-2">
+                        <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
+                          <button 
+                            onClick={() => shiftPeriod(-1)} 
+                            disabled={!canGoBackward}
+                            className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${!canGoBackward ? 'text-white/20 cursor-not-allowed' : 'text-cyan-400 hover:bg-cyan-400/10'}`}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                          </button>
+                          <div className="relative flex items-center justify-center min-w-[100px] md:min-w-[130px]">
+                            <button 
+                              onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
+                              className="flex items-center gap-1 hover:text-cyan-400 transition-colors"
+                            >
+                              <span className="material-symbols-outlined text-[14px]">calendar_today</span>
+                              <span className="text-[10px] text-cyan-50 tracking-widest font-mono uppercase">{periodLabel}</span>
+                            </button>
+                            {isDatePickerOpen && (
+                              <DatePicker 
+                                mode={timeframe} 
+                                selectedDate={referenceDate} 
+                                minDate={oldestDate} 
+                                onSelect={(d) => setReferenceDate(d)} 
+                                onClose={() => setIsDatePickerOpen(false)} 
+                              />
+                            )}
+                          </div>
+                          <button 
+                            onClick={() => shiftPeriod(1)} 
+                            disabled={!canGoForward} 
+                            className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${!canGoForward ? 'text-white/20 cursor-not-allowed' : 'text-cyan-400 hover:bg-cyan-400/10'}`}
+                          >
+                            <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                          </button>
+                        </div>
+                        <div className="flex bg-slate-900/50 p-1 rounded-lg border border-white/5 gap-1">
+                          <TimeToggle label="DAY" active={timeframe === 'day'} onClick={() => {setTimeframe('day'); setReferenceDate(new Date());}} />
+                          <TimeToggle label="WEEK" active={timeframe === 'week'} onClick={() => {setTimeframe('week'); setReferenceDate(new Date());}} />
+                          <TimeToggle label="MONTH" active={timeframe === 'month'} onClick={() => {setTimeframe('month'); setReferenceDate(new Date());}} />
+                          <TimeToggle label="YEAR" active={timeframe === 'year'} onClick={() => {setTimeframe('year'); setReferenceDate(new Date());}} />
+                        </div>
                       </div>
                     </div>
                     
