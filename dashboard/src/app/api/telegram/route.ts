@@ -113,12 +113,12 @@ export async function POST(req: NextRequest) {
 
     if (responseText) {
       console.log(`[Telegram Webhook] Sending response to ${chatId}...`);
-      const body: any = {
+      const body: Record<string, unknown> = {
         chat_id: chatId,
         text: responseText,
         parse_mode: 'Markdown'
       };
-      
+
       if (replyMarkup) {
         body.reply_markup = replyMarkup;
       }
@@ -133,8 +133,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch (error: any) {
-    console.error('[Telegram Webhook] Global Error:', error.message);
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    console.error('[Telegram Webhook] Global Error:', error instanceof Error ? error.message : 'Unknown error');
+    return NextResponse.json({ ok: false, error: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
   }
 }

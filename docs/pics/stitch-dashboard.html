@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>AETHER_OS | Digital Twin Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;600;700;800&amp;family=Geist:wght@300;400;600&amp;family=Public+Sans:wght@400;600&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        primary: "#00f3ff",
+                        secondary: "#cf5cff",
+                        tertiary: "#a4f200",
+                        surface: "#0a0a0a",
+                        glass: "rgba(255, 255, 255, 0.05)"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    fontFamily: {
+                        "headline": ["Lexend", "sans-serif"],
+                        "display": ["Lexend", "sans-serif"],
+                        "body": ["Geist", "sans-serif"],
+                        "label": ["Public Sans", "sans-serif"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Geist', sans-serif;
+            overflow-x: hidden;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+        }
+        .glow-cyan { text-shadow: 0 0 10px rgba(0, 243, 255, 0.5); }
+        .glow-magenta { text-shadow: 0 0 10px rgba(207, 92, 255, 0.5); }
+        .glow-lime { text-shadow: 0 0 10px rgba(164, 242, 0, 0.5); }
+        
+        .progress-rainbow {
+            background: linear-gradient(90deg, #00f3ff, #cf5cff, #a4f200);
+            background-size: 200% 200%;
+            animation: moveGradient 3s linear infinite;
+        }
+        @keyframes moveGradient {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 100% 50%; }
+        }
+        .pulse-green {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: .5; transform: scale(1.2); }
+        }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,243,255,0.2); border-radius: 10px; }
+        
+        .chart-line-cyan { filter: drop-shadow(0 0 4px rgba(0, 243, 255, 0.6)); }
+    </style>
+</head>
+<body class="bg-surface font-body">
+<!-- WebGL Background Overlay -->
+
+<!-- TopNavBar -->
+<header class="sticky top-0 z-50 flex justify-between items-center px-6 py-3 w-full bg-black/40 backdrop-blur-md border-b border-white/10 shadow-xl">
+<div class="flex items-center gap-6">
+<span class="font-headline text-xl font-bold text-[#00f3ff] drop-shadow-[0_0_8px_rgba(0,243,245,0.8)] uppercase tracking-wider">AETHER_OS</span>
+<div class="flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10">
+<span class="w-2 h-2 rounded-full bg-emerald-500 pulse-green"></span>
+<span class="text-[10px] font-headline tracking-widest text-emerald-500 uppercase">Online</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="hidden md:flex items-center bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 focus-within:border-[#00f3ff] transition-all">
+<span class="material-symbols-outlined text-white/40 text-sm">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-xs text-white placeholder-white/20 w-48" placeholder="QUERY_SYSTEM..." type="text"/>
+</div>
+<div class="flex items-center gap-3">
+<button class="material-symbols-outlined text-white/60 hover:text-[#00f3ff] transition-colors active:scale-95 duration-150">notifications</button>
+<button class="material-symbols-outlined text-white/60 hover:text-[#00f3ff] transition-colors active:scale-95 duration-150">settings</button>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-[#00f3ff]/30">
+<img class="w-full h-full object-cover" data-alt="A close-up high-resolution profile portrait of a futuristic cyborg operator with glowing cyan ocular implants and subtle facial circuitry. The background is a dimly lit high-tech control room with soft bokeh lights. The lighting is dramatic, high-contrast cinematic style emphasizing the tech-noir aesthetic of AETHER_OS with cool blues and sharp highlights." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAgtHBStSNIVegGgh9BaklH9cADX_ifOqR4gn9b0jSptu_-3hZBD9qkr7gpiqCseI62M41Ue8-FiJbXs4RUPTc_6xprZphcLOjt84EvfL83mZk37KqWT3l6OgRGOBc2TImS4KlAjHd9ByIQSc_c9voLvmiIrTpQ0DNWyH9jr9yYcdF5rP8xnbZMDF3sykKNl4Jqmdl7JjSKHr5g7Xu9qTJLLb79MgLivncRzBdv1I0QjZ003bfP95fn_Ju153Di-6wj4m20ASso7J-W"/>
+</div>
+</div>
+</div>
+</header>
+<div class="flex">
+<!-- SideNavBar -->
+<nav class="hidden lg:flex flex-col h-screen fixed left-0 top-0 pt-16 bg-black/60 backdrop-blur-xl border-r border-white/10 shadow-2xl w-64 z-40">
+<div class="p-6 mb-4">
+<div class="flex items-center gap-3 mb-1">
+<div class="w-10 h-10 rounded-lg bg-[#00f3ff]/10 flex items-center justify-center border border-[#00f3ff]/20">
+<span class="material-symbols-outlined text-[#00f3ff]" style="font-variation-settings: 'FILL' 1;">terminal</span>
+</div>
+<div>
+<h3 class="font-headline text-lg font-black text-[#00f3ff]">AETHER_OS</h3>
+<p class="text-[10px] text-white/40 uppercase tracking-tighter">V2.0.4-STABLE</p>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-1 px-2">
+<!-- Dashboard Active -->
+<a class="bg-[#00f3ff]/10 text-[#00f3ff] border-r-4 border-[#00f3ff] px-4 py-3 flex items-center gap-3 transition-all duration-300 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-body text-label-md uppercase tracking-widest font-semibold">Dashboard</span>
+</a>
+<a class="text-white/40 hover:text-white/80 hover:bg-white/5 px-4 py-3 flex items-center gap-3 transition-all duration-300 ease-in-out" href="#">
+<span class="material-symbols-outlined">sensors</span>
+<span class="font-body text-label-md uppercase tracking-widest">Sensors</span>
+</a>
+<a class="text-white/40 hover:text-white/80 hover:bg-white/5 px-4 py-3 flex items-center gap-3 transition-all duration-300 ease-in-out" href="#">
+<span class="material-symbols-outlined">bolt</span>
+<span class="font-body text-label-md uppercase tracking-widest">Power</span>
+</a>
+</div>
+<div class="mt-auto p-4 flex flex-col gap-4">
+<div class="border-t border-white/5 pt-4">
+<div class="flex items-center gap-2 px-4 py-2 text-white/40 hover:text-white/80 transition-colors">
+<span class="material-symbols-outlined text-sm">terminal</span>
+<span class="text-xs uppercase tracking-widest">Logs</span>
+</div>
+<div class="flex items-center gap-2 px-4 py-2 text-white/40 hover:text-white/80 transition-colors">
+<span class="material-symbols-outlined text-sm">lan</span>
+<span class="text-xs uppercase tracking-widest">Network</span>
+</div>
+</div>
+<button class="w-full bg-red-950/40 hover:bg-red-900/60 text-red-500 border border-red-900/50 py-3 rounded-lg text-[10px] font-headline font-bold uppercase tracking-widest transition-all active:scale-95">
+                    Emergency Shutdown
+                </button>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="flex-1 lg:ml-64 p-6 overflow-y-auto min-h-[calc(100vh-60px)]">
+<div class="max-w-[1600px] mx-auto space-y-6">
+<!-- KPI Cards Row -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+<!-- TEMPERATURE -->
+<div class="glass-panel p-5 rounded-xl group relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-[10px] font-headline text-white/40 uppercase tracking-widest">Temperature</p>
+<h2 class="text-4xl font-headline font-bold text-primary glow-cyan mt-1">27.4<span class="text-lg opacity-60 ml-1">°C</span></h2>
+</div>
+<span class="material-symbols-outlined text-primary/40 group-hover:text-primary transition-colors">thermostat</span>
+</div>
+<div class="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-primary shadow-[0_0_8px_rgba(0,243,255,0.6)]" style="width: 65%;"></div>
+</div>
+</div>
+<!-- HUMIDITY -->
+<div class="glass-panel p-5 rounded-xl group relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-[10px] font-headline text-white/40 uppercase tracking-widest">Humidity</p>
+<h2 class="text-4xl font-headline font-bold text-secondary glow-magenta mt-1">68.2<span class="text-lg opacity-60 ml-1">%</span></h2>
+</div>
+<span class="material-symbols-outlined text-secondary/40 group-hover:text-secondary transition-colors">humidity_mid</span>
+</div>
+<div class="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-secondary shadow-[0_0_8px_rgba(207,92,255,0.6)]" style="width: 68%;"></div>
+</div>
+</div>
+<!-- LIGHT INTENSITY -->
+<div class="glass-panel p-5 rounded-xl group relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-[10px] font-headline text-white/40 uppercase tracking-widest">Light Intensity</p>
+<h2 class="text-4xl font-headline font-bold text-tertiary glow-lime mt-1">1,240<span class="text-lg opacity-60 ml-1">LUX</span></h2>
+</div>
+<span class="material-symbols-outlined text-tertiary/40 group-hover:text-tertiary transition-colors">light_mode</span>
+</div>
+<div class="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+<div class="h-full bg-tertiary shadow-[0_0_8px_rgba(164,242,0,0.6)]" style="width: 45%;"></div>
+</div>
+</div>
+<!-- COMFORT INDEX -->
+<div class="glass-panel p-5 rounded-xl group relative overflow-hidden">
+<div class="flex justify-between items-start mb-4">
+<div>
+<p class="text-[10px] font-headline text-white/40 uppercase tracking-widest">Comfort Index</p>
+<h2 class="text-4xl font-headline font-bold text-white mt-1">74<span class="text-lg opacity-40 ml-1">/ 100</span></h2>
+</div>
+<span class="material-symbols-outlined text-white/20 group-hover:text-white transition-colors">sentiment_satisfied</span>
+</div>
+<div class="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+<div class="h-full progress-rainbow" style="width: 74%;"></div>
+</div>
+</div>
+</div>
+<!-- Main Layout Grid -->
+<div class="grid grid-cols-1 xl:grid-cols-10 gap-6 h-full">
+<!-- Trend Analysis Chart (70%) -->
+<div class="xl:col-span-7 flex flex-col gap-6">
+<div class="glass-panel p-6 rounded-xl flex-1 flex flex-col min-h-[500px]">
+<div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+<div class="flex items-center gap-3">
+<div class="w-1 h-6 bg-primary"></div>
+<h3 class="font-headline text-lg font-bold uppercase tracking-wider">Trend Analysis</h3>
+</div>
+<div class="flex items-center gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
+<button class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-primary bg-white/5 rounded">Day</button>
+<button class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors">Week</button>
+<button class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors">Month</button>
+<button class="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white/40 hover:text-white transition-colors">Year</button>
+<div class="w-px h-4 bg-white/10 mx-1"></div>
+<button class="material-symbols-outlined text-white/40 hover:text-white text-sm">chevron_left</button>
+<button class="material-symbols-outlined text-white/40 hover:text-white text-sm">chevron_right</button>
+</div>
+</div>
+<div class="flex-1 relative">
+<!-- Chart Visualization Simulation -->
+<div class="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-10">
+<div class="border-t border-white/50 w-full"></div>
+<div class="border-t border-white/50 w-full"></div>
+<div class="border-t border-white/50 w-full"></div>
+<div class="border-t border-white/50 w-full"></div>
+<div class="border-t border-white/50 w-full"></div>
+</div>
+<svg class="w-full h-full overflow-visible" preserveaspectratio="none" viewbox="0 0 1000 400">
+<!-- Humidity Area Fill -->
+<path d="M0,350 Q100,280 200,320 T400,250 T600,290 T800,200 T1000,230 L1000,400 L0,400 Z" fill="rgba(207, 92, 255, 0.05)"></path>
+<path d="M0,350 Q100,280 200,320 T400,250 T600,290 T800,200 T1000,230" fill="none" opacity="0.6" stroke="#cf5cff" stroke-width="2"></path>
+<!-- Temp Line -->
+<path class="chart-line-cyan" d="M0,150 L100,160 L200,140 L300,155 L400,130 L500,145 L600,120 L700,135 L800,110 L900,125 L1000,105" fill="none" stroke="#00f3ff" stroke-width="3"></path>
+<!-- Light Step Line -->
+<path d="M0,300 H100 V250 H250 V280 H400 V220 H600 V260 H850 V200 H1000" fill="none" opacity="0.5" stroke="#a4f200" stroke-dasharray="4" stroke-width="2"></path>
+</svg>
+<div class="flex justify-between mt-4 text-[10px] text-white/20 font-label tracking-tighter uppercase">
+<span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>23:59</span>
+</div>
+</div>
+<div class="mt-8 flex gap-6 items-center flex-wrap">
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-sm bg-primary"></div>
+<span class="text-[10px] font-headline uppercase text-white/60 tracking-widest">Temperature (°C)</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-sm bg-secondary opacity-60"></div>
+<span class="text-[10px] font-headline uppercase text-white/60 tracking-widest">Humidity (%)</span>
+</div>
+<div class="flex items-center gap-2">
+<div class="w-3 h-3 rounded-sm bg-tertiary border border-dashed border-tertiary"></div>
+<span class="text-[10px] font-headline uppercase text-white/60 tracking-widest">Light (Lux)</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Side Panel (30%) -->
+<div class="xl:col-span-3 flex flex-col gap-6">
+<!-- Activity Timeline -->
+<div class="glass-panel p-6 rounded-xl flex-1 min-h-[300px]">
+<div class="flex items-center gap-3 mb-6">
+<div class="w-1 h-6 bg-tertiary"></div>
+<h3 class="font-headline text-lg font-bold uppercase tracking-wider">Activity</h3>
+</div>
+<div class="space-y-6 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-white/5">
+<div class="flex gap-4 relative">
+<div class="w-6 h-6 rounded-full bg-emerald-500/20 border-4 border-[#050505] z-10 flex items-center justify-center">
+<div class="w-1.5 h-1.5 bg-emerald-500 rounded-full pulse-green"></div>
+</div>
+<div class="flex-1 pb-4 border-b border-white/5">
+<div class="flex justify-between">
+<p class="text-xs font-headline font-bold text-white uppercase tracking-wider">User Home</p>
+<span class="text-[10px] font-label text-white/30">14:22:15</span>
+</div>
+<p class="text-[11px] text-white/40 mt-1">Presence detected in Sector 7-A</p>
+</div>
+</div>
+<div class="flex gap-4 relative">
+<div class="w-6 h-6 rounded-full bg-red-500/20 border-4 border-[#050505] z-10 flex items-center justify-center">
+<div class="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
+</div>
+<div class="flex-1 pb-4 border-b border-white/5">
+<div class="flex justify-between">
+<p class="text-xs font-headline font-bold text-white uppercase tracking-wider">User Out</p>
+<span class="text-[10px] font-label text-white/30">12:10:04</span>
+</div>
+<p class="text-[11px] text-white/40 mt-1">Exit sequence initiated at Gate 2</p>
+</div>
+</div>
+<div class="flex gap-4 relative">
+<div class="w-6 h-6 rounded-full bg-emerald-500/20 border-4 border-[#050505] z-10 flex items-center justify-center">
+<div class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+</div>
+<div class="flex-1 pb-4 border-b border-white/5">
+<div class="flex justify-between">
+<p class="text-xs font-headline font-bold text-white uppercase tracking-wider">User Home</p>
+<span class="text-[10px] font-label text-white/30">08:45:32</span>
+</div>
+<p class="text-[11px] text-white/40 mt-1">Identity verified. Welcome back.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- System Logs -->
+<div class="glass-panel p-6 rounded-xl flex-1 flex flex-col overflow-hidden max-h-[300px]">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-1 h-6 bg-secondary"></div>
+<h3 class="font-headline text-lg font-bold uppercase tracking-wider">System Logs</h3>
+</div>
+<div class="flex-1 bg-black/40 rounded border border-white/5 p-3 font-mono text-[10px] space-y-1 overflow-y-auto custom-scrollbar">
+<div class="flex gap-2">
+<span class="text-white/20">[15:30:12]</span>
+<span class="text-primary font-bold">[INFO]</span>
+<span class="text-white/60">Metric synchronization complete.</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[15:28:45]</span>
+<span class="text-tertiary font-bold">[DEBUG]</span>
+<span class="text-white/40">Polling sensor cluster [TH-201].</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[15:25:01]</span>
+<span class="text-amber-500 font-bold">[WARN]</span>
+<span class="text-amber-500/60">Heuristic variance in humidity node.</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[15:22:15]</span>
+<span class="text-emerald-500 font-bold">[INFO]</span>
+<span class="text-white/60">Presence detector triggered.</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[15:15:40]</span>
+<span class="text-primary font-bold">[INFO]</span>
+<span class="text-white/60">AETHER_CORE v2.0.4 initialized.</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[15:10:12]</span>
+<span class="text-red-500 font-bold">[ERROR]</span>
+<span class="text-red-500/60">Connection handshake timeout (Node_B).</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[15:05:00]</span>
+<span class="text-tertiary font-bold">[DEBUG]</span>
+<span class="text-white/40">Cache purge executed successfully.</span>
+</div>
+<div class="flex gap-2">
+<span class="text-white/20">[14:55:22]</span>
+<span class="text-primary font-bold">[INFO]</span>
+<span class="text-white/60">Backup schedule updated.</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Mobile Bottom Navigation -->
+<nav class="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-xl border-t border-white/10 flex items-center justify-around z-50">
+<button class="flex flex-col items-center gap-1 text-[#00f3ff]">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="text-[9px] uppercase font-bold tracking-widest">Dash</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-white/40">
+<span class="material-symbols-outlined">sensors</span>
+<span class="text-[9px] uppercase font-bold tracking-widest">Sensors</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-white/40">
+<span class="material-symbols-outlined">bolt</span>
+<span class="text-[9px] uppercase font-bold tracking-widest">Power</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-white/40">
+<span class="material-symbols-outlined">terminal</span>
+<span class="text-[9px] uppercase font-bold tracking-widest">Logs</span>
+</button>
+</nav>
+<script>
+        // Micro-interactions and subtle effects
+        document.querySelectorAll('.glass-panel').forEach(panel => {
+            panel.addEventListener('mousemove', (e) => {
+                const { left, top, width, height } = panel.getBoundingClientRect();
+                const x = ((e.clientX - left) / width) * 100;
+                const y = ((e.clientY - top) / height) * 100;
+                panel.style.background = `radial-gradient(circle at ${x}% ${y}%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 60%)`;
+            });
+            panel.addEventListener('mouseleave', () => {
+                panel.style.background = 'rgba(255, 255, 255, 0.03)';
+            });
+        });
+
+        // Simple terminal scrolling effect
+        const logContainer = document.querySelector('.custom-scrollbar');
+        setInterval(() => {
+            if(logContainer) {
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+        }, 1000);
+    </script>
+</body></html>
