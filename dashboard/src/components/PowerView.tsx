@@ -32,83 +32,65 @@ export default function PowerView({ sessions, filteredSessions, periodNavigation
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-headline font-semibold text-white uppercase tracking-tight">
-            Runtime_Analytics
-          </h1>
-          <p className="text-[12px] text-[#00f3ff]/70 uppercase tracking-[0.3em] font-body">
-            Device Longevity & Sync Efficiency
-          </p>
+          <h1 className="text-2xl font-semibold text-[#f4f4f5]">Runtime Analytics</h1>
+          <p className="text-xs text-[#6b7280]">Device longevity & sync efficiency</p>
         </div>
-        <div className="inline-block px-3 py-1 bg-[#00f3ff]/10 border border-[#00f3ff]/20 rounded-full">
-          <p className="text-[10px] text-[#00f3ff] font-bold uppercase tracking-wider">
-            Active Profile: {activeInterval}m Interval
-          </p>
+        <div className="inline-block px-3 py-1 bg-[#16161a] border border-[#1f1f23] rounded-full">
+          <p className="text-[11px] text-[#a1a1aa]">Active profile: {activeInterval}m interval</p>
         </div>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           icon="timer"
-          label="ACCUMULATED UPTIME"
+          label="Accumulated Uptime"
           value={`${hours}:${minutes}:${secs}`}
           unit=""
-          color="cyan"
           progress={Math.min(100, (totalRuntime / 86400) * 100)}
           subLabel="Total hours across all sessions"
         />
         <KPICard
           icon="speed"
-          label="MEAN SESSION"
+          label="Mean Session"
           value={meanSession.toFixed(1)}
           unit="s"
-          color="magenta"
           progress={Math.min(100, (meanSession / 30) * 100)}
           subLabel="Average sync duration"
         />
         <KPICard
           icon="cycle"
-          label="DEVICE LIFECYCLE"
+          label="Device Lifecycle"
           value={`#${maxBoot}`}
-          unit={`Boots`}
-          color="amber"
+          unit="Boots"
           progress={Math.min(100, (maxBoot / 100) * 100)}
           subLabel={`${maxMeasure} total syncs`}
         />
         <KPICard
           icon="verified"
-          label="EFFICIENCY INDEX"
+          label="Efficiency Index"
           value={`${efficiency}`}
           unit="%"
-          color="lime"
           progress={efficiency}
           subLabel="vs 18s ideal benchmark"
         />
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="glass-panel-heavy p-6 rounded-xl min-h-[350px]">
-          <h2 className="text-[12px] font-headline font-bold text-white/60 uppercase tracking-widest mb-6">
-            Session_Volatility_Index
-          </h2>
+        <div className="card p-6 min-h-[350px]">
+          <h2 className="text-sm font-medium text-[#a1a1aa] mb-6">Session Volatility Index</h2>
           <SessionVolatilityChart sessions={filteredSessions} />
         </div>
-        <div className="glass-panel-heavy p-6 rounded-xl min-h-[350px]">
-          <h2 className="text-[12px] font-headline font-bold text-white/60 uppercase tracking-widest mb-6">
-            Uptime_Accumulation_Plot
-          </h2>
+        <div className="card p-6 min-h-[350px]">
+          <h2 className="text-sm font-medium text-[#a1a1aa] mb-6">Uptime Accumulation Plot</h2>
           <UptimeAccumulationChart sessions={filteredSessions} />
         </div>
       </div>
 
-      {/* Sessions Table */}
-      <div className="glass-panel-heavy p-6 rounded-xl">
+      <div className="card p-6">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
-          <h2 className="text-xl font-headline font-medium text-white uppercase tracking-tight">Recent_Syncs</h2>
+          <h2 className="text-lg font-medium text-[#f4f4f5]">Recent Syncs</h2>
           {periodNavigation}
         </div>
         <SessionTable sessions={filteredSessions} />
