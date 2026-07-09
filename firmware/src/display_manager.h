@@ -114,8 +114,10 @@ void drawIcon(int x, int y, Icon icon);
 void drawIcon24(int x, int y, Icon icon);   // for the 24x24 page icons
 
 // Nearest-neighbor scales the given 24x24 XBM icon and draws it centred at
-// (cx, cy). `scale` must be in (0, 1] — 1.0 renders at the native 24x24 size,
+// (cx, cy). `scale` must be > 0 — 1.0 renders at the native 24x24 size,
 // smaller values render progressively smaller (e.g. 0.6 renders ~14x14).
+// No upper bound is enforced, but callers in this codebase only ever pass
+// values <= 1.0 (shrinking, never upscaling beyond the native bitmap).
 // Reuses the same 24x24 bitmaps as drawIcon24() — no separate small-icon
 // assets needed.
 void drawIconScaled(int cx, int cy, Icon icon, float scale);
