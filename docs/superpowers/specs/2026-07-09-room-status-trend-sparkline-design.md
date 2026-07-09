@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-09
 **Scope:** Firmware only (`firmware/src/main.cpp`, `firmware/src/display_manager.{h,cpp}`)
-**Status:** Approved for planning
+**Status:** ✅ Implemented and committed (8 commits, e47f993..437624a)
 
 ## Problem
 
