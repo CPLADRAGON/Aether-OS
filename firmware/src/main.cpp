@@ -617,12 +617,14 @@ void uiTask(void *pvParameters) {
             else         dm::drawPixel(dcx + i2 * 3, dcy);
           }
         } else if (currentState == SS_CONNECTING) {
-          // Expanding wifi arcs pulsing outward from a centre dot.
+          // WiFi signal-strength search: dot always on, 3 arcs light up one
+          // at a time bottom-to-top, then all drop out and the cycle repeats
+          // — reuses the real WiFi glyph shape instead of generic radar rings.
           dm::drawFilledCircle(cx, cy, 2);
-          int phase = (nowMs / 120) % 12;
+          int level = (nowMs / 280) % 5;   // 0..3 = arc count, 4 = dot-only pause
+          const int radii[3] = {7, 12, 17};
           for (int i2 = 0; i2 < 3; i2++) {
-            int r = ((phase + i2 * 4) % 12) + 3;
-            if (r >= 4 && r <= 12) dm::drawCircle(cx, cy, r);
+            if (level > i2) dm::drawArcUpperHalf(cx, cy, radii[i2]);
           }
           dm::setFont(dm::FONT_NORMAL);
           dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, uiLine1.c_str());
