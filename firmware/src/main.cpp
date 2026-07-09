@@ -1928,8 +1928,14 @@ void showStatsPage() {
 
 // ROOM: instant local DHT11+LDR snapshot, no WiFi/upload, no history append
 // (kept separate from the quality-checked 5-sample MEASURE average).
+//
+// Main view -- matches drawWeatherScreen()'s exact layout (icon left, hero
+// temp + secondary humidity right, full 36px content area, no footer). The
+// comfort tag that used to live in a footer here has moved to
+// drawRoomStatusDetail() (the "Room Status" subpage, reached by short tap);
+// a small ">" chevron in the bottom-right corner hints that it's available.
 static void drawRoomStatus(float tempC, int humPct, int ldrRaw,
-                           const char *comfortTag, const char *lightTag) {
+                           const char *lightTag) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "ROOM", false, dm::ICON_WIFI);
 
@@ -1948,28 +1954,61 @@ static void drawRoomStatus(float tempC, int humPct, int ldrRaw,
   snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
   snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
-  // Icon left, vertically centred in the content area (y=12..39, 27px tall
-  // -- same tight budget as the Measure scan screen since this screen also
-  // keeps a footer (comfort tag) below). Reuses Measure's already
-  // pixel-verified font choices/y-values: FONT_NORMAL hero + FONT_SMALL
-  // secondary, both drawn top-anchored (setFontPosTop()) and clear of the
-  // footer starting at y=39.
+  // Icon left, vertically centred in the full 36px content area (y=12..47,
+  // no footer) -- same positions as drawWeatherScreen() since the content
+  // area is now identically sized.
   int iconX = OLED_OFFSET_X + 3;
-  int iconY = OLED_OFFSET_Y + 12 + (27 - 24) / 2;
+  int iconY = OLED_OFFSET_Y + 12 + (36 - 24) / 2;
   dm::drawIcon24(iconX, iconY, dm::ICON_ROOM_LG);
 
   int rightX = OLED_OFFSET_X + 32;
-  dm::setFont(dm::FONT_NORMAL);
-  dm::drawText(rightX, OLED_OFFSET_Y + 13, tempBuf);
+  dm::setFont(dm::FONT_LARGE);
+  dm::drawText(rightX, OLED_OFFSET_Y + 14, tempBuf);
   dm::setFont(dm::FONT_SMALL);
-  dm::drawText(rightX, OLED_OFFSET_Y + 25, humBuf);
+  dm::drawText(rightX, OLED_OFFSET_Y + 36, humBuf);
 
-  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  // Chevron indicator hinting at the Room Status subpage (short tap toggles
+  // to it). Uses plain ">" rather than a real "▸" glyph -- this codebase
+  // avoids non-ASCII characters in OLED text (same reasoning as avoiding a
+  // real "°" degree symbol elsewhere: no confirmed glyph support in this
+  // font, ASCII is a safe bet).
   dm::setFont(dm::FONT_SMALL);
-  int cw = dm::textWidth(comfortTag);
-  int cx = OLED_OFFSET_X + (OLED_W - cw) / 2;
-  if (cx < 2) cx = 2;
-  dm::drawTextInverted(cx, OLED_OFFSET_Y + OLED_H - 8, comfortTag);
+  const char *chevron = ">";
+  int chW = dm::textWidth(chevron);
+  dm::drawText(OLED_OFFSET_X + OLED_W - chW - 3, OLED_OFFSET_Y + OLED_H - 9, chevron);
+
+  dm::endFrame();
+}
+
+// ROOM STATUS subpage: richer breakdown of temp/humidity/light, each as a
+// tag + raw value on its own line. Reached by short-tapping the ROOM main
+// view; short tap again returns to it (see showRoomPage()).
+static void drawRoomStatusDetail(int tempInt, const char *tempTag,
+                                 int humPct, const char *humTag,
+                                 int ldrRaw, const char *lightTag) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "STATUS", false, dm::ICON_WIFI);
+
+  dm::setFont(dm::FONT_SMALL);
+
+  char tLine[20], hLine[20], lLine[20];
+  snprintf(tLine, sizeof(tLine), "T:%s %dC", tempTag, tempInt);
+  snprintf(hLine, sizeof(hLine), "H:%s %d%%", humTag, humPct);
+  snprintf(lLine, sizeof(lLine), "L:%s %d", lightTag, ldrRaw);
+
+  // Guard against the rare case where a long tag + value combination would
+  // overflow the 64px panel width (e.g. "L:BRIGHT 4095", a 4-digit LDR
+  // reading) -- drop the raw value for that specific line rather than let
+  // it clip off-screen. Matches the existing measure-then-adapt pattern
+  // already used elsewhere in this file (see drawColumnValue()).
+  if (dm::textWidth(tLine) > OLED_W - 4) snprintf(tLine, sizeof(tLine), "T:%s", tempTag);
+  if (dm::textWidth(hLine) > OLED_W - 4) snprintf(hLine, sizeof(hLine), "H:%s", humTag);
+  if (dm::textWidth(lLine) > OLED_W - 4) snprintf(lLine, sizeof(lLine), "L:%s", lightTag);
+
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 16, tLine);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 26, hLine);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 36, lLine);
+
   dm::endFrame();
 }
 
