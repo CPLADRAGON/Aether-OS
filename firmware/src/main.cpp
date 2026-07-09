@@ -303,8 +303,8 @@ void migrateNVS() {
 #define ROOM_TEMP_WARM_MAX  28   // <28C  = WARM, >=28C = HOT
 #define ROOM_HUM_DRY_MAX    40   // <40%  = DRY
 #define ROOM_HUM_NORMAL_MAX 60   // <60%  = NORMAL, >=60% = HUMID
-#define ROOM_LDR_DARK_MAX   500  // <500  = DARK
-#define ROOM_LDR_BRIGHT_MIN 2000 // >=2000 = BRIGHT, between = DIM
+#define ROOM_LDR_BRIGHT_MAX 500  // <500  = BRIGHT (this LDR wiring reads LOW under strong light)
+#define ROOM_LDR_DARK_MIN   2000 // >=2000 = DARK, between = DIM
 
 // --- OLED Config (native 64x48 panel via U8g2 ER constructor) ---
 #define SCREEN_WIDTH 64
@@ -1478,20 +1478,25 @@ static void drawClockScreen(const char *hhmm, const char *ss,
 
   // Big HH:MM centred vertically in the body area.
   dm::setFont(dm::FONT_HUGE);
-  int w = dm::textWidth(hhmm);
+  int w = dm::textWidth(hhmm);  // width measured WITH the colon so centering
+                                 // never shifts when the colon blinks off.
   int x = OLED_OFFSET_X + (OLED_W - w) / 2;
   if (x < 0) x = 0;
-  dm::drawText(x, OLED_OFFSET_Y + 12, hhmm);  // occupies y=12..30
 
-  // Two dot indicators bracketing the numbers to fill the empty space to
-  // the sides — small blinking bullet points that pulse each second.
   int secInt = (ss && ss[0] && ss[1]) ? ((ss[0]-'0')*10 + (ss[1]-'0')) : 0;
-  bool blink = (secInt & 1);
-  int dotY = OLED_OFFSET_Y + 20;
-  if (blink) {
-    dm::drawFilledCircle(OLED_OFFSET_X + 2, dotY, 1);
-    dm::drawFilledCircle(OLED_OFFSET_X + OLED_W - 3, dotY, 1);
+
+  // Classic digital-clock heartbeat: blink the ':' itself (swap to a space on
+  // odd seconds) rather than an unrelated side indicator. Same string length
+  // is preserved so the centred x position never jumps.
+  char blinked[8];
+  strncpy(blinked, hhmm, sizeof(blinked) - 1);
+  blinked[sizeof(blinked) - 1] = '\0';
+  if (secInt & 1) {
+    for (char *p = blinked; *p; p++) {
+      if (*p == ':') *p = ' ';
+    }
   }
+  dm::drawText(x, OLED_OFFSET_Y + 12, blinked);  // occupies y=12..30
 
   // Footer inverted bar: date on left, ticking seconds on right.
   // Bar top at y=39 keeps a 8-px gap under the digits (which end at y=30).
@@ -1886,9 +1891,12 @@ void showRoomPage() {
   char comfortTag[16];
   snprintf(comfortTag, sizeof(comfortTag), "%s+%s", tempTag, humTag);
 
-  const char *lightTag = (ldrRaw < ROOM_LDR_DARK_MAX)     ? "DARK"
-                        : (ldrRaw < ROOM_LDR_BRIGHT_MIN)   ? "DIM"
-                                                             : "BRIGHT";
+  // NOTE: this LDR's voltage-divider wiring reads LOW when the room is
+  // bright and HIGH when dark (verified on hardware) — the opposite of the
+  // "higher = brighter" assumption a photoresistor-on-top divider would give.
+  const char *lightTag = (ldrRaw < ROOM_LDR_BRIGHT_MAX)   ? "BRIGHT"
+                        : (ldrRaw < ROOM_LDR_DARK_MIN)     ? "DIM"
+                                                             : "DARK";
 
   drawRoomStatus(t, hInt, ldrRaw, comfortTag, lightTag);
   waitWithButtonPoll(5000);
