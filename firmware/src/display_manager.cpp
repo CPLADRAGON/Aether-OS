@@ -559,7 +559,6 @@ void drawIconMenu(const char *const *labels, const Icon *icons, int count,
                   float fractionalIdx) {
     if (count <= 0) return;
     int W = bufferWidth();
-    int H = bufferHeight();
     int centreX = W / 2;
     int iconY = 12;          // below header
     int slot = 32;           // horizontal spacing between icons
@@ -567,20 +566,17 @@ void drawIconMenu(const char *const *labels, const Icon *icons, int count,
     int base = (int)floorf(fractionalIdx);
     float frac = fractionalIdx - base;
 
-    // Draw icons at positions relative to centre: -1, 0, +1, +2
+    // Draw icons at positions relative to centre: -1, 0, +1, +2. The centre
+    // icon (rel == frac) renders at full size; neighbors shrink smoothly as
+    // they move away from centre, giving a scale-depth carousel feel.
     for (int rel = -1; rel <= 2; rel++) {
         int i = ((base + rel) % count + count) % count;
+        float dist = fabsf((float)rel - frac);
+        float scale = 1.0f - fminf(1.0f, dist) * 0.4f;
         int xCentre = centreX + (int)((rel - frac) * slot);
-        int x = xCentre - 12;
-        if (x + 24 < 0 || x >= W) continue;
-        drawIcon24(x, iconY, icons[i]);
-    }
-
-    // Punch out the sides so only the centred icon is fully visible; the ones
-    // to the left/right appear ghosted (partial visibility).
-    // Left curtain: clear a 12-px column at x=0..7
-    for (int y = iconY; y < iconY + 24; y++) {
-        if (y >= H) break;
+        int yCentre = iconY + 12;
+        if (xCentre + 12 < 0 || xCentre - 12 >= W) continue;
+        drawIconScaled(xCentre, yCentre, icons[i], scale);
     }
 
     // Label under the centre icon: interpolates from current -> next.
