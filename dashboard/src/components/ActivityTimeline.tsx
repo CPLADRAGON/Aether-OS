@@ -16,13 +16,13 @@ export default function ActivityTimeline({ events, formatSGTime }: ActivityTimel
   if (events.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-white/30 text-xs italic font-mono">No recent activity shifts detected.</p>
+        <p className="text-[#6b7280] text-xs italic">No recent activity shifts detected.</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-white/5">
+    <div className="space-y-6 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-[#1f1f23]">
       {events.map((evt, idx) => (
         <motion.div
           key={idx}
@@ -32,24 +32,24 @@ export default function ActivityTimeline({ events, formatSGTime }: ActivityTimel
           className="flex gap-4 relative"
         >
           <div
-            className={`w-6 h-6 rounded-full border-4 border-[#050505] z-10 flex items-center justify-center ${
-              evt.label === 'User Home' ? 'bg-emerald-500/20' : 'bg-red-500/20'
+            className={`w-6 h-6 rounded-full border-4 border-[#0d0d0f] z-10 flex items-center justify-center ${
+              evt.label === 'User Home' ? 'bg-[#34d399]/20' : 'bg-[#f87171]/20'
             }`}
           >
             <div
               className={`w-1.5 h-1.5 rounded-full ${
-                evt.label === 'User Home' ? 'bg-emerald-500' : 'bg-red-500'
+                evt.label === 'User Home' ? 'bg-[#34d399]' : 'bg-[#f87171]'
               } ${evt.label === 'User Home' ? 'animate-pulse-dot' : ''}`}
             />
           </div>
-          <div className="flex-1 pb-4 border-b border-white/5">
+          <div className="flex-1 pb-4 border-b border-[#1f1f23]">
             <div className="flex justify-between">
-              <p className={`text-xs font-headline font-bold uppercase tracking-wider ${
-                evt.label === 'User Home' ? 'text-emerald-500' : 'text-red-500'
+              <p className={`text-xs font-medium ${
+                evt.label === 'User Home' ? 'text-[#34d399]' : 'text-[#f87171]'
               }`}>
                 {evt.label}
               </p>
-              <span className="text-[10px] text-white/30 font-mono">{formatSGTime(evt.time)}</span>
+              <span className="text-[11px] text-[#6b7280] font-mono">{formatSGTime(evt.time)}</span>
             </div>
           </div>
         </motion.div>
