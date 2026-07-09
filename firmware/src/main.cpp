@@ -1679,14 +1679,31 @@ static void drawMeasureSample(int sampleIdx, int totalSamples,
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
   char tempBuf[6], humBuf[6];
-  snprintf(tempBuf, sizeof(tempBuf), "%d", tInt);
-  snprintf(humBuf,  sizeof(humBuf),  "%d", humPct);
+  snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
+  snprintf(humBuf,  sizeof(humBuf),  "%d%%", humPct);
 
-  drawColumnValue(OLED_OFFSET_X + 2,  28, OLED_OFFSET_Y + 11, "TEMP C", tempBuf);
-  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
-  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "HUM %", humBuf);
+  // Icon left, vertically centred in the content area (y=12..39, 27px tall
+  // -- shorter than Weather's since this screen keeps the LDR footer).
+  int iconX = OLED_OFFSET_X + 3;
+  int iconY = OLED_OFFSET_Y + 12 + (27 - 24) / 2;
+  dm::drawIcon24(iconX, iconY, dm::ICON_MEASURE_LG);
 
-  // Footer: LDR value in inverted bar.
+  // Stats stacked right: hero temp line, secondary humidity line below it.
+  // Text is drawn with setFontPosTop() in effect (see display_manager.cpp),
+  // so y-values are the TOP of each glyph. This content area (27px) is
+  // tighter than Weather's (36px) since the LDR footer stays, so the hero
+  // line uses FONT_NORMAL (~10px tall) instead of Weather's FONT_LARGE
+  // (~20px) -- FONT_LARGE would not leave enough room for the secondary
+  // line before the footer starts at y=39. FONT_NORMAL at y=13 ends around
+  // y=23; FONT_SMALL (~7px) at y=25 ends around y=32, safely clear of the
+  // footer with margin to spare.
+  int rightX = OLED_OFFSET_X + 32;
+  dm::setFont(dm::FONT_NORMAL);
+  dm::drawText(rightX, OLED_OFFSET_Y + 13, tempBuf);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawText(rightX, OLED_OFFSET_Y + 25, humBuf);
+
+  // Footer: LDR value in inverted bar (unchanged from before).
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
   char lb[12]; snprintf(lb, sizeof(lb), "LDR %d", ldr);
