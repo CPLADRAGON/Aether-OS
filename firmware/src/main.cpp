@@ -1272,11 +1272,13 @@ void showTimePage() {
       strftime(hh,   sizeof(hh),   "%H", &tinfo);
       strftime(mm,   sizeof(mm),   "%M", &tinfo);
       strftime(ss,   sizeof(ss),   "%S", &tinfo);
-      strftime(dStr, sizeof(dStr), "%d/%m", &tinfo);
+      strftime(dStr, sizeof(dStr), "%d %b", &tinfo);
       strftime(dayStr, sizeof(dayStr), "%a", &tinfo);
       String day = String(dayStr);
       day.toUpperCase();
-      drawClockScreen(hh, mm, ss, dStr, day.c_str());
+      String dateStr = String(dStr);
+      dateStr.toUpperCase();
+      drawClockScreen(hh, mm, ss, dateStr.c_str(), day.c_str(), tinfo.tm_hour);
     }
     if (waitWithButtonPoll(500))
       break; // Cancel on button press
