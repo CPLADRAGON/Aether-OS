@@ -2,7 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 
 interface Reading {
@@ -23,7 +23,26 @@ interface TrendChartProps {
   timeframe: 'day' | 'week' | 'month' | 'year';
 }
 
+// Below this width, the chart drops the Humidity/Light axis LABELS (values
+// are still fully plotted and available via tooltip) to reclaim the fixed
+// ~80-130px right margin those labels need -- on a narrow phone card that
+// margin eats a much bigger proportion of the available width than on
+// desktop, squeezing the actual plot area into a visibly narrow strip.
+const MOBILE_BREAKPOINT_PX = 640;
+
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT_PX);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+  return isMobile;
+}
+
 export default function TrendChart({ readings, timeRange, timeframe }: TrendChartProps) {
+  const isMobile = useIsMobile();
   const chartOptions = useMemo(() => {
     // Time-based moving average — smooths raw sensor jitter into a readable
     // trend line without shifting the curve forward/backward in time. Window
@@ -116,7 +135,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           return tooltipText;
         },
       },
-      grid: { left: '3%', right: 80, bottom: '3%', top: '10%', containLabel: true },
+      grid: { left: '3%', right: isMobile ? 8 : 80, bottom: '3%', top: '10%', containLabel: true },
       xAxis: {
         type: 'time',
         boundaryGap: false,
@@ -161,7 +180,10 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           type: 'value',
           position: 'right',
           splitLine: { show: false },
-          axisLabel: { color: '#38bdf8', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(1)}%` },
+          // Labels hidden on mobile to reclaim the fixed right-margin width
+          // (see MOBILE_BREAKPOINT_PX comment) -- values are still fully
+          // plotted and available on tap via the tooltip.
+          axisLabel: { show: !isMobile, color: '#38bdf8', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(1)}%` },
           // Same reasoning as the temperature axis above -- DHT11 humidity
           // resolution is also +-1% integer steps.
           min: (value: { min: number; max: number }) => {
@@ -176,9 +198,9 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         {
           type: 'value',
           position: 'right',
-          offset: 50,
+          offset: isMobile ? 0 : 50,
           splitLine: { show: false },
-          axisLabel: { color: '#facc15', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(0)}lx` },
+          axisLabel: { show: !isMobile, color: '#facc15', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(0)}lx` },
           min: 0,
           // Light naturally varies far more than temp/humidity (real
           // physical brightness changes, not sensor quantization), so it
@@ -223,7 +245,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         },
       ],
     };
-  }, [readings, timeRange, timeframe]);
+  }, [readings, timeRange, timeframe, isMobile]);
 
   return (
     <ReactECharts option={chartOptions} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'svg' }} />
