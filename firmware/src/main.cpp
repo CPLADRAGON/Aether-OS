@@ -622,9 +622,9 @@ void uiTask(void *pvParameters) {
           // — reuses the real WiFi glyph shape instead of generic radar rings.
           dm::drawFilledCircle(cx, cy, 2);
           int level = (nowMs / 280) % 5;   // 0..3 = arc count, 4 = dot-only pause
-          const int radii[3] = {7, 12, 17};
+          const int radii[3] = {7, 11, 14};  // 14 keeps the largest arc on-screen given cx=14
           for (int i2 = 0; i2 < 3; i2++) {
-            if (level > i2) dm::drawArcUpperHalf(cx, cy, radii[i2]);
+            if (level > i2 && level < 4) dm::drawArcUpperHalf(cx, cy, radii[i2]);
           }
           dm::setFont(dm::FONT_NORMAL);
           dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, uiLine1.c_str());
