@@ -27,13 +27,15 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
   const chartOptions = useMemo(() => {
     // Centered moving average — smooths raw sensor jitter into a readable
     // trend line without shifting the curve forward/backward in time (unlike
-    // a trailing average). Window scales with data density: sparse data (few
-    // readings) stays essentially untouched, dense data (week/month/year
-    // views) gets smoothed more so the underlying trend reads clearly instead
-    // of a jittery mess of tiny fluctuations.
-    const windowSize = Math.max(1, Math.min(15, Math.round(readings.length / 40)));
+    // a trailing average). Window scales with data density: sparse data gets
+    // a mild floor of 3 (the DHT11 only has +-1C/+-1% integer resolution, so
+    // even "sparse" data needs *some* smoothing or every 1-unit quantization
+    // step reads as a sharp zigzag), dense data (week/month/year views) gets
+    // smoothed more so the underlying trend reads clearly instead of a
+    // jittery mess of tiny fluctuations.
+    const windowSize = Math.max(3, Math.min(15, Math.round(readings.length / 20)));
     const smooth = (values: number[]): number[] => {
-      if (windowSize <= 1) return values;
+      if (values.length <= 2) return values; // too few points for any window to matter
       const result: number[] = [];
       for (let i = 0; i < values.length; i++) {
         const start = Math.max(0, i - Math.floor(windowSize / 2));
@@ -127,16 +129,36 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           type: 'value',
           splitLine: { lineStyle: { type: 'dashed', color: '#1f1f23' } },
           axisLabel: { color: '#818cf8', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(1)}°C` },
-          min: 'dataMin',
-          max: 'dataMax',
+          // Tight dataMin/dataMax scaling exaggerates the DHT11's coarse
+          // +-1C integer resolution: a room that's genuinely stable within
+          // 1-2C would still stretch that whole range across the full
+          // chart height, making ordinary sensor quantization steps look
+          // like wild swings. A padded floor (at least 2C total headroom)
+          // keeps small real ranges visually proportionate.
+          min: (value: { min: number; max: number }) => {
+            const pad = Math.max(1, (value.max - value.min) * 0.2);
+            return Math.floor((value.min - pad) * 10) / 10;
+          },
+          max: (value: { min: number; max: number }) => {
+            const pad = Math.max(1, (value.max - value.min) * 0.2);
+            return Math.ceil((value.max + pad) * 10) / 10;
+          },
         },
         {
           type: 'value',
           position: 'right',
           splitLine: { show: false },
           axisLabel: { color: '#38bdf8', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(1)}%` },
-          min: 'dataMin',
-          max: 'dataMax',
+          // Same reasoning as the temperature axis above -- DHT11 humidity
+          // resolution is also +-1% integer steps.
+          min: (value: { min: number; max: number }) => {
+            const pad = Math.max(3, (value.max - value.min) * 0.2);
+            return Math.max(0, Math.floor(value.min - pad));
+          },
+          max: (value: { min: number; max: number }) => {
+            const pad = Math.max(3, (value.max - value.min) * 0.2);
+            return Math.min(100, Math.ceil(value.max + pad));
+          },
         },
         {
           type: 'value',
@@ -145,7 +167,11 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           splitLine: { show: false },
           axisLabel: { color: '#facc15', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(0)}lx` },
           min: 0,
-          max: 'dataMax',
+          // Light naturally varies far more than temp/humidity (real
+          // physical brightness changes, not sensor quantization), so it
+          // doesn't need the same padding treatment -- just a little
+          // headroom so peaks aren't flush against the top edge.
+          max: (value: { max: number }) => Math.max(10, Math.ceil(value.max * 1.1)),
         },
       ],
       series: [

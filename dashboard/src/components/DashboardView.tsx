@@ -27,9 +27,9 @@ interface DeviceLog {
   level: string;
 }
 
-interface PresenceEvent {
+interface EnvironmentEvent {
   time: string;
-  label: 'User Out' | 'User Home';
+  label: 'Dimmer / Drier' | 'Brighter / Humid';
 }
 
 interface DashboardViewProps {
@@ -39,7 +39,7 @@ interface DashboardViewProps {
   timeframe: 'day' | 'week' | 'month' | 'year';
   timeRange: { start: Date; end: Date };
   loading: boolean;
-  presenceEvents: PresenceEvent[];
+  environmentEvents: EnvironmentEvent[];
   formatSGTime: (dateStr: string) => string;
   comfortScore: number;
   displayData: { temp: number; hum: number; lux: number; label: string };
@@ -62,7 +62,7 @@ export default function DashboardView({
   timeframe,
   timeRange,
   loading,
-  presenceEvents,
+  environmentEvents,
   formatSGTime,
   comfortScore,
   displayData,
@@ -182,8 +182,11 @@ export default function DashboardView({
 
         <div className="xl:col-span-3 flex flex-col gap-4 sm:gap-6">
           <div className="card p-4 sm:p-6">
-            <h3 className="text-sm font-medium text-[#a1a1aa] mb-4 sm:mb-6">Activity</h3>
-            <ActivityTimeline events={presenceEvents} formatSGTime={formatSGTime} />
+            <div className="flex items-baseline justify-between mb-1">
+              <h3 className="text-sm font-medium text-[#a1a1aa]">Environment Shifts</h3>
+            </div>
+            <p className="text-[10px] text-[#6b7280] mb-4 sm:mb-5">Light/humidity swings — not a presence sensor</p>
+            <ActivityTimeline events={environmentEvents} formatSGTime={formatSGTime} />
           </div>
 
           <div className="card p-4 sm:p-6 flex flex-col">

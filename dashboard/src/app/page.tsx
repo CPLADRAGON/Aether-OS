@@ -239,8 +239,14 @@ export default function Dashboard() {
     return Math.round((tScore + hScore) / 2);
   }, [latest]);
 
-  const presenceEvents = useMemo(() => {
-    const events: { time: string; label: 'User Out' | 'User Home' }[] = [];
+  // NOTE: this is a rough environmental-change heuristic, NOT a reliable
+  // presence/occupancy signal -- this device has no dedicated motion/PIR
+  // sensor. Light level swings just as easily from daylight, curtains, or
+  // automatic lighting as from a person flicking a switch, and humidity
+  // drifts from many causes unrelated to anyone entering/leaving. Labeled
+  // and framed accordingly below (as raw sensor shifts, not "user activity").
+  const environmentEvents = useMemo(() => {
+    const events: { time: string; label: 'Dimmer / Drier' | 'Brighter / Humid' }[] = [];
     if (readings.length < 2) return events;
     // Compare each reading to the previous one (not a fixed time window) so this
     // works regardless of the device's sleep interval (5/15/30/60 min) — a 30-min
@@ -254,20 +260,20 @@ export default function Dashboard() {
     // LDR polarity: bright room = LOW raw reading, dark room = HIGH raw
     // reading (firmware's ADC-to-lux conversion inverts this back to the
     // intuitive "higher lux = brighter" sense, but this heuristic works
-    // directly on the raw, uninverted signal). So leaving (lights off)
-    // pushes raw ldr_value UP; arriving (lights on) pushes it DOWN.
-    let currentState: 'Home' | 'Out' = 'Home';
+    // directly on the raw, uninverted signal). So a "dimmer/drier" shift
+    // pushes raw ldr_value UP; a "brighter/humid" shift pushes it DOWN.
+    let currentState: 'BrighterHumid' | 'DimmerDrier' = 'BrighterHumid';
     for (let i = 1; i < readings.length; i++) {
       const past = readings[i - 1];
       const current = readings[i];
       const ldrChange = (current.ldr_value - past.ldr_value) / Math.max(1, past.ldr_value);
       const humChange = current.humidity - past.humidity;
-      if ((ldrChange >= 0.4 || humChange <= -3) && currentState !== 'Out') {
-        events.push({ time: current.created_at, label: 'User Out' });
-        currentState = 'Out';
-      } else if ((ldrChange <= -0.4 || humChange >= 3) && currentState !== 'Home') {
-        events.push({ time: current.created_at, label: 'User Home' });
-        currentState = 'Home';
+      if ((ldrChange >= 0.4 || humChange <= -3) && currentState !== 'DimmerDrier') {
+        events.push({ time: current.created_at, label: 'Dimmer / Drier' });
+        currentState = 'DimmerDrier';
+      } else if ((ldrChange <= -0.4 || humChange >= 3) && currentState !== 'BrighterHumid') {
+        events.push({ time: current.created_at, label: 'Brighter / Humid' });
+        currentState = 'BrighterHumid';
       }
     }
     return events.reverse().slice(0, 5);
@@ -389,7 +395,7 @@ export default function Dashboard() {
             timeframe={timeframe}
             timeRange={timeRange}
             loading={loading}
-            presenceEvents={presenceEvents}
+            environmentEvents={environmentEvents}
             formatSGTime={formatSGTime}
             comfortScore={comfortScore}
             displayData={displayData}

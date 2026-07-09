@@ -2,13 +2,13 @@
 
 import { motion } from 'framer-motion';
 
-interface PresenceEvent {
+interface EnvironmentEvent {
   time: string;
-  label: 'User Out' | 'User Home';
+  label: 'Dimmer / Drier' | 'Brighter / Humid';
 }
 
 interface ActivityTimelineProps {
-  events: PresenceEvent[];
+  events: EnvironmentEvent[];
   formatSGTime: (dateStr: string) => string;
 }
 
@@ -16,7 +16,7 @@ export default function ActivityTimeline({ events, formatSGTime }: ActivityTimel
   if (events.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-[#6b7280] text-xs italic">No recent activity shifts detected.</p>
+        <p className="text-[#6b7280] text-xs italic">No recent environment shifts detected.</p>
       </div>
     );
   }
@@ -33,19 +33,19 @@ export default function ActivityTimeline({ events, formatSGTime }: ActivityTimel
         >
           <div
             className={`w-6 h-6 rounded-full border-4 border-[#0d0d0f] z-10 flex items-center justify-center ${
-              evt.label === 'User Home' ? 'bg-[#34d399]/20' : 'bg-[#f87171]/20'
+              evt.label === 'Brighter / Humid' ? 'bg-[#34d399]/20' : 'bg-[#f87171]/20'
             }`}
           >
             <div
               className={`w-1.5 h-1.5 rounded-full ${
-                evt.label === 'User Home' ? 'bg-[#34d399]' : 'bg-[#f87171]'
-              } ${evt.label === 'User Home' ? 'animate-pulse-dot' : ''}`}
+                evt.label === 'Brighter / Humid' ? 'bg-[#34d399]' : 'bg-[#f87171]'
+              }`}
             />
           </div>
           <div className="flex-1 pb-4 border-b border-[#1f1f23]">
             <div className="flex justify-between">
               <p className={`text-xs font-medium ${
-                evt.label === 'User Home' ? 'text-[#34d399]' : 'text-[#f87171]'
+                evt.label === 'Brighter / Humid' ? 'text-[#34d399]' : 'text-[#f87171]'
               }`}>
                 {evt.label}
               </p>
