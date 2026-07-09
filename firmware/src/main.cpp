@@ -451,6 +451,7 @@ bool oledFound = false;
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmm, const char *day, int hour24);
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
+static void drawHeroTemp(int x, int yTop, int maxWidthPx, float tempC);
 
 // Maps OpenWeatherMap's weather[0].main field to an icon. That field is
 // always one of a fixed set of capitalized-mixed-case strings (see
@@ -1717,14 +1718,10 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "WEATHER", false, dm::ICON_WIFI);
 
-  int tInt = (int)(tempC + 0.5f);
-  if (tInt > 99) tInt = 99;
-  if (tInt < -9) tInt = -9;
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
-  char tempBuf[6], humBuf[6];
-  snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
-  snprintf(humBuf,  sizeof(humBuf),  "%d%%", humPct);
+  char humBuf[6];
+  snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
   // Icon left, vertically centred in the content area (y=12..47, 36px tall,
   // no footer on this screen -- the icon now conveys condition instead of
@@ -1736,12 +1733,13 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   // Stats stacked right: hero temp line, secondary humidity line below it.
   // Text is drawn with setFontPosTop() in effect (see display_manager.cpp),
   // so these y-values are the TOP of each glyph, not its baseline -- top +
-  // font height must stay within the 48px panel. FONT_LARGE (~20px tall)
-  // at y=14 ends around y=34; FONT_SMALL (~7px tall) at y=36 ends around
-  // y=43, comfortably inside the panel with margin to spare.
+  // font height must stay within the 48px panel. drawHeroTemp() picks the
+  // widest font that fits a decimal-precision value in this ~32px column
+  // (FONT_LARGE's 10px/char cannot fit "31.5C"'s 5 characters here); at its
+  // largest (FONT_MEDIUM, 13px tall) landing at y=14 still ends well clear
+  // of the humidity line at y=36.
   int rightX = OLED_OFFSET_X + 32;
-  dm::setFont(dm::FONT_LARGE);
-  dm::drawText(rightX, OLED_OFFSET_Y + 14, tempBuf);
+  drawHeroTemp(rightX, OLED_OFFSET_Y + 14, OLED_W - rightX, tempC);
   dm::setFont(dm::FONT_SMALL);
   dm::drawText(rightX, OLED_OFFSET_Y + 36, humBuf);
 
@@ -1834,6 +1832,41 @@ static void buildLightLabel(char *out, size_t outSize, int maxWidthPx,
   snprintf(out, outSize, "%d", lux);
 }
 
+// Draws a decimal-precision hero temperature ("31.5C") at the given
+// top-left position, auto-fitting the widest font/format combo that stays
+// within maxWidthPx (measured with the REAL font metrics via
+// dm::textWidth(), not assumed char counts -- same philosophy as
+// buildLightLabel() above). Tries, in order:
+//   1. FONT_MEDIUM "31.5C"  (full detail, preferred)
+//   2. FONT_MEDIUM "31.5"   (drop the "C" unit -- context makes it obvious)
+//   3. FONT_NORMAL "31.5C"  (smaller font, guaranteed to fit)
+// Used by screens whose hero temp previously showed a bare whole-degree
+// FONT_LARGE value ("31C") -- FONT_LARGE (10px/char) cannot fit 5 characters
+// in the ~32px column these screens have available, so this steps down to
+// the next size(s) rather than truncating the decimal away.
+static void drawHeroTemp(int x, int yTop, int maxWidthPx, float tempC) {
+  if (tempC > 99.9f) tempC = 99.9f;
+  if (tempC < -9.9f) tempC = -9.9f;
+
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%.1fC", tempC);
+  dm::setFont(dm::FONT_MEDIUM);
+  if (dm::textWidth(buf) <= maxWidthPx) {
+    dm::drawText(x, yTop, buf);
+    return;
+  }
+
+  snprintf(buf, sizeof(buf), "%.1f", tempC);
+  if (dm::textWidth(buf) <= maxWidthPx) {
+    dm::drawText(x, yTop, buf);
+    return;
+  }
+
+  snprintf(buf, sizeof(buf), "%.1fC", tempC);
+  dm::setFont(dm::FONT_NORMAL);
+  dm::drawText(x, yTop, buf);
+}
+
 static void drawMeasureSample(int sampleIdx, int totalSamples,
                               float tempC, int humPct, int lux) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
@@ -1841,13 +1874,12 @@ static void drawMeasureSample(int sampleIdx, int totalSamples,
   snprintf(headBuf, sizeof(headBuf), "SCAN %d/%d", sampleIdx, totalSamples);
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, headBuf, true, dm::ICON_SCAN);
 
-  int tInt = (int)(tempC + 0.5f);
-  if (tInt > 99) tInt = 99;
-  if (tInt < -9) tInt = -9;
+  if (tempC > 99.9f) tempC = 99.9f;
+  if (tempC < -9.9f) tempC = -9.9f;
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
-  char tempBuf[6], humBuf[6];
-  snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
+  char tempBuf[8], humBuf[6];
+  snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
   snprintf(humBuf,  sizeof(humBuf),  "%d%%", humPct);
 
   // Icon left, vertically centred in the content area (y=12..39, 27px tall
@@ -2089,14 +2121,11 @@ static void drawRoomStatus(float tempC, int humPct, int lux,
   int ltw = dm::textWidth(lightTag);
   dm::drawTextInverted(OLED_OFFSET_X + OLED_W - ltw - 2, OLED_OFFSET_Y + 2, lightTag);
 
-  int tInt = (int)(tempC + 0.5f);
-  if (tInt > 99) tInt = 99;
-  if (tInt < -9) tInt = -9;
-  if (humPct > 99) humPct = 99;
-  if (humPct < 0)  humPct = 0;
-  char tempBuf[6], humBuf[6];
-  snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
-  snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
+  int humPctClamped = humPct;
+  if (humPctClamped > 99) humPctClamped = 99;
+  if (humPctClamped < 0)  humPctClamped = 0;
+  char humBuf[6];
+  snprintf(humBuf, sizeof(humBuf), "%d%%", humPctClamped);
 
   // Icon left, vertically centred in the full 36px content area (y=12..47,
   // no footer) -- same positions as drawWeatherScreen() since the content
@@ -2105,9 +2134,10 @@ static void drawRoomStatus(float tempC, int humPct, int lux,
   int iconY = OLED_OFFSET_Y + 12 + (36 - 24) / 2;
   dm::drawIcon24(iconX, iconY, dm::ICON_ROOM_LG);
 
+  // drawHeroTemp() auto-fits a decimal-precision value into this ~32px
+  // column -- see drawWeatherScreen()'s identical usage/comment.
   int rightX = OLED_OFFSET_X + 32;
-  dm::setFont(dm::FONT_LARGE);
-  dm::drawText(rightX, OLED_OFFSET_Y + 14, tempBuf);
+  drawHeroTemp(rightX, OLED_OFFSET_Y + 14, OLED_W - rightX, tempC);
   dm::setFont(dm::FONT_SMALL);
   dm::drawText(rightX, OLED_OFFSET_Y + 36, humBuf);
 
@@ -2127,7 +2157,7 @@ static void drawRoomStatus(float tempC, int humPct, int lux,
 // ROOM STATUS subpage: richer breakdown of temp/humidity/light, each as a
 // tag + raw value on its own line. Reached by short-tapping the ROOM main
 // view; short tap again returns to it (see showRoomPage()).
-static void drawRoomStatusDetail(int tempInt, const char *tempTag,
+static void drawRoomStatusDetail(float tempC, const char *tempTag,
                                  int humPct, const char *humTag,
                                  int lux, const char *lightTag) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
@@ -2136,7 +2166,7 @@ static void drawRoomStatusDetail(int tempInt, const char *tempTag,
   dm::setFont(dm::FONT_SMALL);
 
   char tLine[20], hLine[20], lLine[20];
-  snprintf(tLine, sizeof(tLine), "T:%s %dC", tempTag, tempInt);
+  snprintf(tLine, sizeof(tLine), "T:%s %.1fC", tempTag, tempC);
   snprintf(hLine, sizeof(hLine), "H:%s %d%%", humTag, humPct);
 
   // Guard against the rare case where a long tag + value combination would
@@ -2192,7 +2222,7 @@ void showRoomPage() {
   bool showingDetail = false;
   while (true) {
     if (showingDetail) {
-      drawRoomStatusDetail(tInt, tempTag, hInt, humTag, lux, lightTag);
+      drawRoomStatusDetail(t, tempTag, hInt, humTag, lux, lightTag);
     } else {
       drawRoomStatus(t, hInt, lux, lightTag);
     }

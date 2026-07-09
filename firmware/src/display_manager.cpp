@@ -283,6 +283,7 @@ static const uint8_t *resolve_font(dm::Font f) {
     switch (f) {
         case dm::FONT_SMALL:  return u8g2_font_5x7_tf;
         case dm::FONT_NORMAL: return u8g2_font_6x10_tf;
+        case dm::FONT_MEDIUM: return u8g2_font_8x13_tf;
         case dm::FONT_LARGE:  return u8g2_font_10x20_tf;
         // FONT_HUGE was logisoso28 (28 px tall). On 64x48 with a 10 px header
         // that leaves only 38 px vertical which the tall glyphs overflow. Use
