@@ -2275,7 +2275,7 @@ void setup() {
   ledcSetup(BLUE_CH, 5000, 8);
   // Attachment is now conditional in monitorTask
 
-  xTaskCreatePinnedToCore(uiTask, "UI", 4096, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(uiTask, "UI", 4096, NULL, 1, NULL, 0);
   // Lowered to 12KB to save heap for SSL (Supabase)
   xTaskCreatePinnedToCore(monitorTask, "Monitor", 12288, NULL, 2, NULL, 1);
 }
