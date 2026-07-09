@@ -88,9 +88,27 @@ struct __attribute__((packed)) LogQueue {
   SessionLog logs[10];
 };
 
+// --- Local Trend History (ROOM/TREND menu features) ---
+// Ring buffer of the last 12 completed MEASURE averages. `head` is the index
+// of the most-recently-written point (not "next write index"); this keeps
+// the read-side chronological-order math simple and unambiguous.
+struct __attribute__((packed)) TrendPoint {
+  int16_t  tempX10; // temperature * 10, e.g. 235 = 23.5C
+  uint8_t  humidity; // 0-100
+  uint16_t ldr;      // raw analogRead(LDR_PIN), 0-4095
+};
+
+struct __attribute__((packed)) TrendHistory {
+  uint8_t version = 1;
+  uint8_t count = 0; // valid entries, 0-12
+  uint8_t head = 0;  // index of the most recently written point
+  TrendPoint points[12];
+};
+
 WiFiSnapshot currentSnapshot;
 DeviceConfig config;
 LogQueue logQueue;
+TrendHistory trendHistory;
 uint32_t sessionStartTime = 0; // Relative (millis) or Absolute (UTC)
 bool timeSynced = false;
 
@@ -185,6 +203,48 @@ void clearLogQueue() {
   preferences.putBytes("queue", &logQueue, sizeof(LogQueue));
   preferences.end();
   Serial.println("[NVS] Log queue cleared.");
+}
+
+// Loads trendHistory from NVS at boot. If the stored blob is missing, the
+// wrong size, or a different version, resets to an empty (count=0) history
+// rather than risk reading garbage data into the ring buffer.
+void loadTrendHistory() {
+  preferences.begin("trend_v1", true);
+  size_t len = preferences.getBytes("hist", &trendHistory, sizeof(TrendHistory));
+  preferences.end();
+  if (len != sizeof(TrendHistory) || trendHistory.version != 1) {
+    trendHistory.version = 1;
+    trendHistory.count = 0;
+    trendHistory.head = 0;
+  }
+}
+
+// Appends one averaged MEASURE reading to the local trend ring buffer and
+// persists it immediately. Called regardless of WiFi/upload outcome — this
+// is local-only data, independent of connectivity. Non-fatal on NVS failure:
+// the core measure/upload path must never be blocked by this.
+void appendTrendPoint(float tempC, float humidityPct, int ldrRaw) {
+  int writeIdx = (trendHistory.count == 0) ? 0 : (trendHistory.head + 1) % 12;
+
+  int tempTenths = (int)(tempC * 10.0f + (tempC >= 0 ? 0.5f : -0.5f));
+  if (tempTenths > 32767) tempTenths = 32767;
+  if (tempTenths < -32768) tempTenths = -32768;
+
+  int humInt = (int)(humidityPct + 0.5f);
+  if (humInt < 0) humInt = 0;
+  if (humInt > 100) humInt = 100;
+
+  trendHistory.points[writeIdx].tempX10 = (int16_t)tempTenths;
+  trendHistory.points[writeIdx].humidity = (uint8_t)humInt;
+  trendHistory.points[writeIdx].ldr = (uint16_t)ldrRaw;
+  trendHistory.head = (uint8_t)writeIdx;
+  if (trendHistory.count < 12) trendHistory.count++;
+
+  preferences.begin("trend_v1", false);
+  preferences.putBytes("hist", &trendHistory, sizeof(TrendHistory));
+  preferences.end();
+  Serial.printf("[TREND] Point appended. count=%d head=%d\n",
+                trendHistory.count, trendHistory.head);
 }
 
 void migrateNVS() {
