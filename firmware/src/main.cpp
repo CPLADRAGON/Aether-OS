@@ -725,7 +725,11 @@ bool validateIPReady() {
 }
 
 // Return codes: 0=OK, 1=UserAbort, 2=NoSSID, 3=AuthFail, 4=Timeout
-int tryConnect(const char *ssid, const char *pass) {
+// forceDynamicIP skips the BSSID/channel/static-IP "Memory-Link" fast path
+// entirely and does a normal scan-based DHCP connect -- used by ensureWiFi()
+// to retry when a fast-track connection succeeds at the WiFi layer (WL_
+// CONNECTED) but the saved static IP turns out to be stale/unreachable.
+int tryConnect(const char *ssid, const char *pass, bool forceDynamicIP = false) {
   String sStr = String(ssid);
   sStr.trim();
   String pStr = String(pass);
@@ -737,13 +741,18 @@ int tryConnect(const char *ssid, const char *pass) {
   // expanding-arc wifi connecting splash based on that state.
   uiLine1 = sStr.substring(0, 9);
 
+  // Applied before WiFi.begin() so they're in effect for the initial
+  // association/DHCP handshake, not just subsequent traffic.
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_19_5dBm);
+
   WiFi.disconnect();
   vTaskDelay(200 / portTICK_PERIOD_MS);
 
   bool snapshotValid = loadWiFiSnapshot();
   bool isFastTrackSSID =
       (snapshotValid && sStr == String(currentSnapshot.ssid));
-  bool attemptFast = isFastTrackSSID;
+  bool attemptFast = isFastTrackSSID && !forceDynamicIP;
 
   if (attemptFast) {
     WiFi.config(
@@ -756,9 +765,6 @@ int tryConnect(const char *ssid, const char *pass) {
                 IPAddress(0, 0, 0, 0));
     WiFi.begin(sStr.c_str(), pStr.c_str());
   }
-
-  WiFi.setSleep(false);
-  WiFi.setTxPower(WIFI_POWER_19_5dBm);
 
   Serial.printf("[WIFI] Target: %s\n", sStr.c_str());
   uiLine2 = sStr.substring(0, 10);
@@ -838,6 +844,16 @@ bool ensureWiFi(bool force = false) {
         if (res == 0) {
           if (validateIPReady())
             return true;
+          // Fast-track path associated (WL_CONNECTED) but the saved static
+          // IP is stale/unreachable (e.g. router's DHCP scheme changed
+          // since this snapshot was taken). Retry once with a fresh
+          // DHCP-based connection instead of silently giving up -- this was
+          // previously a dead end that made the whole ensureWiFi() call
+          // fail even though the network itself was fine.
+          Serial.println("[WIFI] Fast-track IP unreachable, retrying with DHCP...");
+          res = tryConnect(s.c_str(), p.c_str(), true);
+          if (res == 0 && validateIPReady())
+            return true;
         }
         if (res == 1)
           break;
@@ -847,6 +863,10 @@ bool ensureWiFi(bool force = false) {
     res = tryConnect(s.c_str(), p.c_str());
     if (res == 0) {
       if (validateIPReady())
+        return true;
+      Serial.println("[WIFI] Fast-track IP unreachable, retrying with DHCP...");
+      res = tryConnect(s.c_str(), p.c_str(), true);
+      if (res == 0 && validateIPReady())
         return true;
     }
   }
