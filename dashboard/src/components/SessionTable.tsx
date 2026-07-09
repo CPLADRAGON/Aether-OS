@@ -28,18 +28,18 @@ export function SessionVolatilityChart({ sessions }: { sessions: Session[] }) {
           type: 'category',
           data: data.map((_, i) => i + 1),
           axisLine: { show: false },
-          axisLabel: { color: '#849495', fontSize: 10 },
+          axisLabel: { color: '#6b7280', fontSize: 10 },
         },
         yAxis: {
           type: 'value',
-          splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } },
-          axisLabel: { color: '#849495', fontSize: 10 },
+          splitLine: { lineStyle: { color: '#1f1f23' } },
+          axisLabel: { color: '#6b7280', fontSize: 10 },
         },
         series: [
           {
             data: data.map((s) => ({
               value: s.duration,
-              itemStyle: { color: s.duration > 25 ? '#FBBF24' : '#00f3ff' },
+              itemStyle: { color: s.duration > 25 ? '#fbbf24' : '#818cf8' },
             })),
             type: 'bar',
             barWidth: '60%',
@@ -68,7 +68,7 @@ export function UptimeAccumulationChart({ sessions }: { sessions: Session[] }) {
         yAxis: {
           type: 'value',
           splitLine: { show: false },
-          axisLabel: { color: '#849495', fontSize: 10 },
+          axisLabel: { color: '#6b7280', fontSize: 10 },
         },
         series: [
           {
@@ -80,13 +80,13 @@ export function UptimeAccumulationChart({ sessions }: { sessions: Session[] }) {
             type: 'line',
             smooth: true,
             symbol: 'none',
-            lineStyle: { color: '#00f3ff', width: 3, shadowBlur: 10, shadowColor: '#00f3ff' },
+            lineStyle: { color: '#818cf8', width: 2.5 },
             areaStyle: {
               color: {
                 type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
                 colorStops: [
-                  { offset: 0, color: 'rgba(0,243,255,0.3)' },
-                  { offset: 1, color: 'rgba(0,243,255,0)' },
+                  { offset: 0, color: 'rgba(129,140,248,0.2)' },
+                  { offset: 1, color: 'rgba(129,140,248,0)' },
                 ],
               },
             },
@@ -101,7 +101,7 @@ export default function SessionTable({ sessions }: SessionTableProps) {
   if (sessions.length === 0) {
     return (
       <div className="text-center py-8">
-        <p className="text-white/30 text-xs italic font-mono">No session data for this period.</p>
+        <p className="text-[#6b7280] text-xs italic">No session data for this period.</p>
       </div>
     );
   }
@@ -110,27 +110,27 @@ export default function SessionTable({ sessions }: SessionTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full text-left border-collapse">
         <thead>
-          <tr className="border-b border-white/10 text-[10px] text-white/40 tracking-widest uppercase">
-            <th className="py-4 px-2 font-medium">Timestamp (SGT)</th>
-            <th className="py-4 px-2 font-medium">Duration</th>
-            <th className="py-4 px-2 font-medium">Boot Index</th>
-            <th className="py-4 px-2 font-medium">Sync Count</th>
-            <th className="py-4 px-2 font-medium">Efficiency</th>
+          <tr className="border-b border-[#1f1f23] text-xs text-[#6b7280]">
+            <th className="py-3 px-2 font-medium">Timestamp (SGT)</th>
+            <th className="py-3 px-2 font-medium">Duration</th>
+            <th className="py-3 px-2 font-medium">Boot Index</th>
+            <th className="py-3 px-2 font-medium">Sync Count</th>
+            <th className="py-3 px-2 font-medium">Efficiency</th>
           </tr>
         </thead>
         <tbody className="text-xs font-mono">
           {sessions.map((s, idx) => (
-            <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-              <td className="py-4 px-2 text-white/60">
+            <tr key={idx} className="border-b border-[#1f1f23]/60 hover:bg-[#16161a] transition-colors">
+              <td className="py-3 px-2 text-[#a1a1aa]">
                 {new Date(s.synced_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}
               </td>
-              <td className="py-4 px-2 text-[#00f3ff]">{s.duration}s</td>
-              <td className="py-4 px-2 text-amber-400">#{s.boot_count}</td>
-              <td className="py-4 px-2 text-[#cf5cff]">{s.measure_count}</td>
-              <td className="py-4 px-2">
-                <div className="w-24 bg-white/5 h-1.5 rounded-full overflow-hidden">
+              <td className="py-3 px-2 text-[#f4f4f5]">{s.duration}s</td>
+              <td className="py-3 px-2 text-[#a1a1aa]">#{s.boot_count}</td>
+              <td className="py-3 px-2 text-[#a1a1aa]">{s.measure_count}</td>
+              <td className="py-3 px-2">
+                <div className="w-24 bg-[#1f1f23] h-1 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-emerald-500 rounded-full"
+                    className="h-full bg-[#34d399] rounded-full"
                     style={{ width: `${Math.min(100, (18 / s.duration) * 100)}%` }}
                   />
                 </div>

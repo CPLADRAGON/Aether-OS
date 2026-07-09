@@ -47,9 +47,9 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
     return {
       tooltip: {
         trigger: 'axis',
-        backgroundColor: 'rgba(17, 20, 23, 0.9)',
-        borderColor: 'rgba(0, 243, 255, 0.2)',
-        textStyle: { color: '#fff', fontSize: 11, fontFamily: 'Geist, sans-serif' },
+        backgroundColor: '#16161a',
+        borderColor: '#1f1f23',
+        textStyle: { color: '#f4f4f5', fontSize: 11, fontFamily: 'Inter, sans-serif' },
         formatter: function (params: any) {
           const d = new Date(params[0].value[0]);
           let timeStr = '';
@@ -57,17 +57,17 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           else if (timeframe === 'week') timeStr = d.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
           else timeStr = d.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
 
-          let tooltipText = `<div style="font-size:10px;color:#849495;margin-bottom:4px;">${timeStr}</div>`;
+          let tooltipText = `<div style="font-size:10px;color:#6b7280;margin-bottom:4px;">${timeStr}</div>`;
           let t = 0, h = 0;
           params.forEach((param: any) => {
             const val = param.value[1];
-            tooltipText += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:${param.color};"></span> <span style="font-weight:bold">${param.seriesName}:</span> ${val}</div>`;
+            tooltipText += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:${param.color};"></span> <span style="font-weight:600">${param.seriesName}:</span> ${val}</div>`;
             if (param.seriesName === 'Temperature') t = val;
             if (param.seriesName === 'Humidity') h = val;
           });
 
           const hi = -8.78469475556 + 1.61139411 * t + 2.33854883889 * h - 0.14611605 * t * h - 0.012308094 * t * t - 0.0164248277778 * h * h + 0.002211732 * t * t * h + 0.00072546 * t * h * h - 0.000003582 * t * t * h * h;
-          tooltipText += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:#ffaa00;"></span> <span style="font-weight:bold">Apparent Temp:</span> ${hi.toFixed(1)} °C</div>`;
+          tooltipText += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1f1f23;display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:#818cf8;"></span> <span style="font-weight:600">Apparent Temp:</span> ${hi.toFixed(1)} °C</div>`;
           return tooltipText;
         },
       },
@@ -78,9 +78,9 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         axisLine: { show: false },
         axisTick: { show: false },
         axisLabel: {
-          color: '#849495',
+          color: '#6b7280',
           fontSize: 10,
-          fontFamily: 'Geist, sans-serif',
+          fontFamily: 'Inter, sans-serif',
           formatter: (value: number) => {
             const d = new Date(value);
             if (timeframe === 'day') return d.toLocaleTimeString('en-SG', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit', hour12: false });
@@ -95,8 +95,8 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
       yAxis: [
         {
           type: 'value',
-          splitLine: { lineStyle: { type: 'dashed', color: 'rgba(255,255,255,0.05)' } },
-          axisLabel: { color: '#00f3ff', fontSize: 10, fontFamily: 'Geist, sans-serif', formatter: (val: number) => `${val.toFixed(1)}°C` },
+          splitLine: { lineStyle: { type: 'dashed', color: '#1f1f23' } },
+          axisLabel: { color: '#818cf8', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(1)}°C` },
           min: 'dataMin',
           max: 'dataMax',
         },
@@ -104,7 +104,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           type: 'value',
           position: 'right',
           splitLine: { show: false },
-          axisLabel: { color: '#cf5cff', fontSize: 10, fontFamily: 'Geist, sans-serif', formatter: (val: number) => `${val.toFixed(1)}%` },
+          axisLabel: { color: '#71717a', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(1)}%` },
           min: 'dataMin',
           max: 'dataMax',
         },
@@ -113,7 +113,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           position: 'right',
           offset: 50,
           splitLine: { show: false },
-          axisLabel: { color: '#a4f200', fontSize: 10, fontFamily: 'Geist, sans-serif', formatter: (val: number) => `${val.toFixed(0)}lx` },
+          axisLabel: { color: '#52525b', fontSize: 10, fontFamily: 'Inter, sans-serif', formatter: (val: number) => `${val.toFixed(0)}lx` },
           min: 0,
           max: 'dataMax',
         },
@@ -124,11 +124,11 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           type: 'line',
           smooth: true,
           data: readings.map((r) => [new Date(r.created_at).getTime(), r.temperature]),
-          itemStyle: { color: '#00f3ff' },
-          lineStyle: { width: 3, shadowColor: 'rgba(0, 243, 255, 0.4)', shadowBlur: 10 },
+          itemStyle: { color: '#818cf8' },
+          lineStyle: { width: 2.5 },
           showSymbol: false,
           markArea: {
-            itemStyle: { color: 'rgba(255,255,255,0.03)' },
+            itemStyle: { color: 'rgba(255,255,255,0.04)' },
             data: markAreaRanges,
           },
         },
@@ -140,11 +140,11 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           areaStyle: {
             color: {
               type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(207,92,255,0.2)' }, { offset: 1, color: 'rgba(207,92,255,0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(113,113,122,0.15)' }, { offset: 1, color: 'rgba(113,113,122,0)' }],
             },
           },
           data: readings.map((r) => [new Date(r.created_at).getTime(), r.humidity]),
-          itemStyle: { color: '#cf5cff' },
+          itemStyle: { color: '#71717a' },
           lineStyle: { width: 2 },
           showSymbol: false,
         },
@@ -154,12 +154,12 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           step: 'end',
           yAxisIndex: 2,
           data: readings.map((r) => [new Date(r.created_at).getTime(), r.ldr_value]),
-          itemStyle: { color: '#a4f200' },
+          itemStyle: { color: '#52525b' },
           lineStyle: { width: 1, opacity: 0.7 },
           areaStyle: {
             color: {
               type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(164,242,0,0.1)' }, { offset: 1, color: 'rgba(164,242,0,0)' }],
+              colorStops: [{ offset: 0, color: 'rgba(82,82,91,0.1)' }, { offset: 1, color: 'rgba(82,82,91,0)' }],
             },
           },
           showSymbol: false,
