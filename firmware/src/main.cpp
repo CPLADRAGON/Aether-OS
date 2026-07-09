@@ -1836,9 +1836,13 @@ static void drawMeasureSample(int sampleIdx, int totalSamples,
 
   // Footer: lux value + qualitative tag in inverted bar (previously showed
   // raw ADC counts, which are meaningless to a human -- see ldrRawToLux()).
+  // No "LX" unit suffix (see drawRoomStatusDetail()'s comment on the same
+  // issue) -- "850 LX BRIGHT" is long enough to risk clipping on this
+  // narrow 64px footer with the longest tag; the unit is redundant given
+  // the screen context.
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
-  char lb[20]; snprintf(lb, sizeof(lb), "%d LX %s", lux, lightLevelTag(lux));
+  char lb[20]; snprintf(lb, sizeof(lb), "%d %s", lux, lightLevelTag(lux));
   int lw = dm::textWidth(lb);
   int lx = OLED_OFFSET_X + (OLED_W - lw) / 2;
   if (lx < 2) lx = 2;
@@ -2096,7 +2100,14 @@ static void drawRoomStatusDetail(int tempInt, const char *tempTag,
   char tLine[20], hLine[20], lLine[20];
   snprintf(tLine, sizeof(tLine), "T:%s %dC", tempTag, tempInt);
   snprintf(hLine, sizeof(hLine), "H:%s %d%%", humTag, humPct);
-  snprintf(lLine, sizeof(lLine), "L:%s %dLX", lightTag, lux);
+  // No "LX" unit suffix here (unlike T:'s "C" / H:'s "%") -- with the
+  // longest tag (BRIGHT, 6 chars) and a 4-digit lux value, "L:BRIGHT
+  // 1000LX" reliably overflowed the 64px panel and silently dropped the
+  // lux value entirely via the fallback below, which is the actual bug a
+  // user hit in a bright room. "L:BRIGHT 1000" is the same length as
+  // "H:NORMAL 100%" (13 chars), which was never observed to overflow, so
+  // dropping the unit suffix here fixes it without shrinking the font.
+  snprintf(lLine, sizeof(lLine), "L:%s %d", lightTag, lux);
 
   // Guard against the rare case where a long tag + value combination would
   // overflow the 64px panel width -- drop the value for that specific line
@@ -2227,8 +2238,8 @@ static void drawTrendSparkline(TrendView view) {
   char footBuf[24];
   if (view == TREND_TEMP)      snprintf(footBuf, sizeof(footBuf), "%.1fC", vals[n - 1]);
   else if (view == TREND_HUM)  snprintf(footBuf, sizeof(footBuf), "%d%%", (int)vals[n - 1]);
-  else                          snprintf(footBuf, sizeof(footBuf), "%d LX %s",
-                                         (int)vals[n - 1], lightLevelTag(vals[n - 1]));
+  else                          snprintf(footBuf, sizeof(footBuf), "%d %s", // no "LX" -- see
+                                         (int)vals[n - 1], lightLevelTag(vals[n - 1])); // drawRoomStatusDetail()
 
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
