@@ -25,24 +25,37 @@ interface TrendChartProps {
 
 export default function TrendChart({ readings, timeRange, timeframe }: TrendChartProps) {
   const chartOptions = useMemo(() => {
-    // Centered moving average — smooths raw sensor jitter into a readable
-    // trend line without shifting the curve forward/backward in time (unlike
-    // a trailing average). Window scales with data density: sparse data gets
-    // a mild floor of 3 (the DHT11 only has +-1C/+-1% integer resolution, so
-    // even "sparse" data needs *some* smoothing or every 1-unit quantization
-    // step reads as a sharp zigzag), dense data (week/month/year views) gets
-    // smoothed more so the underlying trend reads clearly instead of a
-    // jittery mess of tiny fluctuations.
-    const windowSize = Math.max(3, Math.min(15, Math.round(readings.length / 20)));
+    // Time-based moving average — smooths raw sensor jitter into a readable
+    // trend line without shifting the curve forward/backward in time. Window
+    // scales with the SELECTED TIMEFRAME (not raw sample count): a fixed
+    // sample-count window means wildly different real time spans depending
+    // on the device's sleep interval (5-60 min) and produces inconsistent
+    // smoothing -- worse, capping the window at a small sample count meant
+    // dense data (short sleep interval, week/month/year views) got barely
+    // smoothed at all, since e.g. 15 samples at a 5-min interval is only
+    // +-37.5 min of real smoothing for a whole WEEK-scale view. Using a
+    // half-window defined in real minutes keeps smoothing strength
+    // consistent and proportionate to what's actually on screen, regardless
+    // of how densely the device happens to be sampling.
+    const halfWindowMin =
+      timeframe === 'day' ? 30 :
+      timeframe === 'week' ? 180 :
+      timeframe === 'month' ? 720 :
+      4320; // year
+    const times = readings.map((r) => new Date(r.created_at).getTime());
     const smooth = (values: number[]): number[] => {
-      if (values.length <= 2) return values; // too few points for any window to matter
-      const result: number[] = [];
-      for (let i = 0; i < values.length; i++) {
-        const start = Math.max(0, i - Math.floor(windowSize / 2));
-        const end = Math.min(values.length, i + Math.ceil(windowSize / 2));
-        let sum = 0;
-        for (let j = start; j < end; j++) sum += values[j];
-        result.push(sum / (end - start));
+      const n = values.length;
+      if (n <= 2) return values; // too few points for any window to matter
+      const halfWindowMs = halfWindowMin * 60 * 1000;
+      const result: number[] = new Array(n);
+      // Two-pointer sliding window (O(n) total) -- times[] is sorted
+      // ascending (readings are fetched with `.order('created_at', {
+      // ascending: true })`), so lo/hi only ever advance forward.
+      let lo = 0, hi = 0, sum = 0;
+      for (let i = 0; i < n; i++) {
+        while (hi < n && times[hi] <= times[i] + halfWindowMs) { sum += values[hi]; hi++; }
+        while (lo < i && times[lo] < times[i] - halfWindowMs) { sum -= values[lo]; lo++; }
+        result[i] = sum / (hi - lo);
       }
       return result;
     };
