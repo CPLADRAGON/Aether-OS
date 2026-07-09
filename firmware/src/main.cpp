@@ -95,11 +95,13 @@ struct __attribute__((packed)) LogQueue {
 struct __attribute__((packed)) TrendPoint {
   int16_t  tempX10; // temperature * 10, e.g. 235 = 23.5C
   uint8_t  humidity; // 0-100
-  uint16_t ldr;      // raw analogRead(LDR_PIN), 0-4095
+  uint16_t ldr;      // lux value (estimated), NOT raw ADC (see ldrRawToLux())
+                      // -- named `ldr` for minimal churn to existing read
+                      // sites, but holds lux since the v2 NVS migration.
 };
 
 struct __attribute__((packed)) TrendHistory {
-  uint8_t version = 1;
+  uint8_t version = 2;
   uint8_t count = 0; // valid entries, 0-12
   uint8_t head = 0;  // index of the most recently written point
   TrendPoint points[12];
@@ -208,12 +210,18 @@ void clearLogQueue() {
 // Loads trendHistory from NVS at boot. If the stored blob is missing, the
 // wrong size, or a different version, resets to an empty (count=0) history
 // rather than risk reading garbage data into the ring buffer.
+//
+// NVS namespace bumped trend_v1 -> trend_v2 when the `ldr` field's meaning
+// changed from raw ADC counts to estimated lux (see ldrRawToLux()) -- old
+// devices reading a v1 blob under the v2 namespace would otherwise show
+// stale raw values misinterpreted as lux until the 12-slot ring buffer
+// cycles out. Using a fresh namespace guarantees old data is never read.
 void loadTrendHistory() {
-  preferences.begin("trend_v1", true);
+  preferences.begin("trend_v2", true);
   size_t len = preferences.getBytes("hist", &trendHistory, sizeof(TrendHistory));
   preferences.end();
-  if (len != sizeof(TrendHistory) || trendHistory.version != 1) {
-    trendHistory.version = 1;
+  if (len != sizeof(TrendHistory) || trendHistory.version != 2) {
+    trendHistory.version = 2;
     trendHistory.count = 0;
     trendHistory.head = 0;
     return;
@@ -232,7 +240,9 @@ void loadTrendHistory() {
 // persists it immediately. Called regardless of WiFi/upload outcome — this
 // is local-only data, independent of connectivity. Non-fatal on NVS failure:
 // the core measure/upload path must never be blocked by this.
-void appendTrendPoint(float tempC, float humidityPct, int ldrRaw) {
+//
+// `lux` is the estimated lux value (see ldrRawToLux()), not raw ADC.
+void appendTrendPoint(float tempC, float humidityPct, int lux) {
   int writeIdx = (trendHistory.count == 0) ? 0 : (trendHistory.head + 1) % 12;
 
   int tempTenths = (int)(tempC * 10.0f + (tempC >= 0 ? 0.5f : -0.5f));
@@ -245,11 +255,11 @@ void appendTrendPoint(float tempC, float humidityPct, int ldrRaw) {
 
   trendHistory.points[writeIdx].tempX10 = (int16_t)tempTenths;
   trendHistory.points[writeIdx].humidity = (uint8_t)humInt;
-  trendHistory.points[writeIdx].ldr = (uint16_t)ldrRaw;
+  trendHistory.points[writeIdx].ldr = (uint16_t)lux;
   trendHistory.head = (uint8_t)writeIdx;
   if (trendHistory.count < 12) trendHistory.count++;
 
-  preferences.begin("trend_v1", false);
+  preferences.begin("trend_v2", false);
   preferences.putBytes("hist", &trendHistory, sizeof(TrendHistory));
   preferences.end();
   Serial.printf("[TREND] Point appended. count=%d head=%d\n",
@@ -295,16 +305,59 @@ void migrateNVS() {
 #define BLUE_PIN 27
 #define OLED_RST 16
 
-// ROOM page comfort/light thresholds. These are starting values, not
-// calibrated to any specific sensor unit — tune against your actual DHT11
-// and LDR during the Task 8 hardware verification pass.
+// ROOM page comfort thresholds. These are starting values, not calibrated
+// to any specific sensor unit — tune against your actual DHT11 during the
+// Task 8 hardware verification pass.
 #define ROOM_TEMP_COLD_MAX  18   // <18C  = COLD
 #define ROOM_TEMP_COOL_MAX  23   // <23C  = COOL (else WARM below HOT max)
 #define ROOM_TEMP_WARM_MAX  28   // <28C  = WARM, >=28C = HOT
 #define ROOM_HUM_DRY_MAX    40   // <40%  = DRY
 #define ROOM_HUM_NORMAL_MAX 60   // <60%  = NORMAL, >=60% = HUMID
-#define ROOM_LDR_BRIGHT_MAX 500  // <500  = BRIGHT (this LDR wiring reads LOW under strong light)
-#define ROOM_LDR_DARK_MIN   2000 // >=2000 = DARK, between = DIM
+
+// --- LDR raw-to-lux conversion ---
+// The LDR module's exact photoresistor model/fixed-resistor value is
+// unknown (generic 4-pin breakout, no datasheet). These constants model a
+// GENERIC CdS photoresistor voltage-divider circuit (10kOhm fixed resistor
+// assumed, typical GL5528-like dark-resistance/gamma curve) -- this is a
+// documented, reasonable APPROXIMATION, not a photometrically-calibrated
+// lux meter. Wiring (matches the already-verified polarity: bright => low
+// raw ADC, dark => high raw ADC): fixed resistor from 3.3V to the ADC node,
+// LDR from the ADC node to GND.
+#define LDR_ADC_MAX      4095
+#define LDR_ADC_VREF     3.3f
+#define LDR_R_FIXED      10000.0f // ohms, assumed fixed divider resistor
+#define LDR_R_AT_10_LUX  20000.0f // ohms, typical CdS resistance at 10 lux
+#define LDR_GAMMA        0.7f     // typical CdS photoresistor gamma
+#define LDR_LUX_MAX       1000.0f // sanity ceiling
+
+// Room-screen light thresholds, now in lux (previously raw ADC counts).
+#define ROOM_LUX_BRIGHT_MIN 400  // >=400 lux = BRIGHT
+#define ROOM_LUX_DARK_MAX   30   // <=30 lux  = DARK, between = DIM
+
+// Converts a raw LDR ADC reading (0-4095) into an estimated lux value.
+// See the LDR_* constants above for the approximation this is based on.
+static float ldrRawToLux(int raw) {
+  raw = constrain(raw, 1, LDR_ADC_MAX - 1); // avoid div-by-zero at the rails
+  float vNode = (raw / (float)LDR_ADC_MAX) * LDR_ADC_VREF;
+  float rLdr = LDR_R_FIXED * vNode / (LDR_ADC_VREF - vNode);
+  float lux = 10.0f * powf(LDR_R_AT_10_LUX / rLdr, 1.0f / LDR_GAMMA);
+  if (lux < 0.0f) lux = 0.0f;
+  if (lux > LDR_LUX_MAX) lux = LDR_LUX_MAX;
+  return lux;
+}
+
+// Shared 3-band qualitative tag for a lux value, used everywhere space is
+// tight (OLED screens, Telegram bot) so a reading reads consistently no
+// matter where it's shown. The dashboard web UI additionally offers a much
+// more granular breakdown (see lightLevelDetail() in the dashboard code) --
+// this 3-band version is intentionally coarse for small displays/one-line
+// messages.
+static const char *lightLevelTag(float lux) {
+  if (lux >= ROOM_LUX_BRIGHT_MIN) return "BRIGHT";
+  if (lux <= ROOM_LUX_DARK_MAX) return "DARK";
+  return "DIM";
+}
+
 
 // --- OLED Config (native 64x48 panel via U8g2 ER constructor) ---
 #define SCREEN_WIDTH 64
@@ -415,7 +468,7 @@ static dm::Icon resolveWeatherIcon(const String &main) {
 static void drawStatsScreen(uint32_t measures, uint32_t boots, uint32_t uptimeMin);
 static void drawLocateResult(const char *city);
 static void drawMeasureSample(int sampleIdx, int totalSamples,
-                              float tempC, int humPct, int ldr);
+                              float tempC, int humPct, int lux);
 static void drawMeasureGlitch(int sampleIdx, int totalSamples);
 // Redesign pass 2 — replaces the last of the generic updateOLED screens.
 static void drawErrorScreen(const char *title, const char *code, const char *hint);
@@ -1400,14 +1453,17 @@ void runMeasurementFlow(String trigger) {
 
     String headerStr = "SCAN " + String(i + 1) + "/5";
     if (!isnan(t) && !isnan(h) && h <= 100.0 && t < 60.0) {
+      int sampleLux = (int)(ldrRawToLux(l) + 0.5f);
       totalT += t;
       totalH += h;
-      totalL += l;
+      totalL += l; // raw accumulator -- averaged raw is converted to lux ONCE
+                   // after the loop (below), not per-sample, so the uploaded
+                   // lux_value matches ldrRawToLux(avg raw) exactly.
       totalA += acc;
       validCount++;
-      sampleLog += "[T:" + String(t, 1) + " H:" + String(h, 0) + " L:" + String(l) +
+      sampleLog += "[T:" + String(t, 1) + " H:" + String(h, 0) + " L:" + String(sampleLux) +
                    " A:" + String(acc, 2) + "] ";
-      drawMeasureSample(i + 1, 5, t, (int)h, l);
+      drawMeasureSample(i + 1, 5, t, (int)h, sampleLux);
     } else {
       sampleLog += "[ERR] ";
       drawMeasureGlitch(i + 1, 5);
@@ -1415,11 +1471,11 @@ void runMeasurementFlow(String trigger) {
   }
 
   if (validCount > 0) {
+    int avgLux = (int)(ldrRawToLux(totalL / validCount) + 0.5f);
     // Append to the local trend history immediately — this must happen
     // before any WiFi/upload attempt so a connectivity failure never causes
     // the on-device history to silently fall behind reality.
-    appendTrendPoint(totalT / validCount, totalH / validCount,
-                     (int)(totalL / validCount));
+    appendTrendPoint(totalT / validCount, totalH / validCount, avgLux);
 
     uiLine1 = "LINKING...";
     if (!ensureWiFi(true)) {
@@ -1460,7 +1516,8 @@ void runMeasurementFlow(String trigger) {
       JsonDocument doc;
       doc["temperature"] = totalT / validCount;
       doc["humidity"] = totalH / validCount;
-      doc["ldr_value"] = totalL / validCount;
+      doc["ldr_value"] = totalL / validCount; // raw ADC average (kept for history continuity)
+      doc["lux_value"] = avgLux; // estimated lux (see ldrRawToLux()) -- human-facing UIs use this, not ldr_value
       doc["accel_total"] = totalA / validCount;
       doc["trigger_source"] = trigger;
       doc["battery_v"] = 3.3;
@@ -1741,7 +1798,7 @@ static void drawLocateResult(const char *city) {
 }
 
 static void drawMeasureSample(int sampleIdx, int totalSamples,
-                              float tempC, int humPct, int ldr) {
+                              float tempC, int humPct, int lux) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   char headBuf[16];
   snprintf(headBuf, sizeof(headBuf), "SCAN %d/%d", sampleIdx, totalSamples);
@@ -1777,10 +1834,11 @@ static void drawMeasureSample(int sampleIdx, int totalSamples,
   dm::setFont(dm::FONT_SMALL);
   dm::drawText(rightX, OLED_OFFSET_Y + 25, humBuf);
 
-  // Footer: LDR value in inverted bar (unchanged from before).
+  // Footer: lux value + qualitative tag in inverted bar (previously showed
+  // raw ADC counts, which are meaningless to a human -- see ldrRawToLux()).
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
-  char lb[12]; snprintf(lb, sizeof(lb), "LDR %d", ldr);
+  char lb[20]; snprintf(lb, sizeof(lb), "%d LX %s", lux, lightLevelTag(lux));
   int lw = dm::textWidth(lb);
   int lx = OLED_OFFSET_X + (OLED_W - lw) / 2;
   if (lx < 2) lx = 2;
@@ -1978,7 +2036,7 @@ void showStatsPage() {
 // comfort tag that used to live in a footer here has moved to
 // drawRoomStatusDetail() (the "Room Status" subpage, reached by short tap);
 // a small ">" chevron in the bottom-right corner hints that it's available.
-static void drawRoomStatus(float tempC, int humPct, int ldrRaw,
+static void drawRoomStatus(float tempC, int humPct, int lux,
                            const char *lightTag) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "ROOM", false, dm::ICON_WIFI);
@@ -2029,7 +2087,7 @@ static void drawRoomStatus(float tempC, int humPct, int ldrRaw,
 // view; short tap again returns to it (see showRoomPage()).
 static void drawRoomStatusDetail(int tempInt, const char *tempTag,
                                  int humPct, const char *humTag,
-                                 int ldrRaw, const char *lightTag) {
+                                 int lux, const char *lightTag) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "STATUS", false, dm::ICON_WIFI);
 
@@ -2038,13 +2096,13 @@ static void drawRoomStatusDetail(int tempInt, const char *tempTag,
   char tLine[20], hLine[20], lLine[20];
   snprintf(tLine, sizeof(tLine), "T:%s %dC", tempTag, tempInt);
   snprintf(hLine, sizeof(hLine), "H:%s %d%%", humTag, humPct);
-  snprintf(lLine, sizeof(lLine), "L:%s %d", lightTag, ldrRaw);
+  snprintf(lLine, sizeof(lLine), "L:%s %dLX", lightTag, lux);
 
   // Guard against the rare case where a long tag + value combination would
-  // overflow the 64px panel width (e.g. "L:BRIGHT 4095", a 4-digit LDR
-  // reading) -- drop the raw value for that specific line rather than let
-  // it clip off-screen. Matches the existing measure-then-adapt pattern
-  // already used elsewhere in this file (see drawColumnValue()).
+  // overflow the 64px panel width -- drop the value for that specific line
+  // rather than let it clip off-screen. Matches the existing
+  // measure-then-adapt pattern already used elsewhere in this file (see
+  // drawColumnValue()).
   if (dm::textWidth(tLine) > OLED_W - 4) snprintf(tLine, sizeof(tLine), "T:%s", tempTag);
   if (dm::textWidth(hLine) > OLED_W - 4) snprintf(hLine, sizeof(hLine), "H:%s", humTag);
   if (dm::textWidth(lLine) > OLED_W - 4) snprintf(lLine, sizeof(lLine), "L:%s", lightTag);
@@ -2060,6 +2118,7 @@ void showRoomPage() {
   float t = dht.readTemperature();
   float h = dht.readHumidity();
   int ldrRaw = analogRead(LDR_PIN);
+  int lux = (int)(ldrRawToLux(ldrRaw) + 0.5f);
 
   if (isnan(t) || isnan(h)) {
     drawErrorScreen("ROOM", "SENSOR", "READ FAIL");
@@ -2077,12 +2136,7 @@ void showRoomPage() {
                       : (hInt < ROOM_HUM_NORMAL_MAX)   ? "NORMAL"
                                                         : "HUMID";
 
-  // NOTE: this LDR's voltage-divider wiring reads LOW when the room is
-  // bright and HIGH when dark (verified on hardware) — the opposite of the
-  // "higher = brighter" assumption a photoresistor-on-top divider would give.
-  const char *lightTag = (ldrRaw < ROOM_LDR_BRIGHT_MAX)   ? "BRIGHT"
-                        : (ldrRaw < ROOM_LDR_DARK_MIN)     ? "DIM"
-                                                             : "DARK";
+  const char *lightTag = lightLevelTag(lux);
 
   // Toggle loop: short tap switches between the main view and the Status
   // subpage; long press or timeout exits to the menu. Exactly two views,
@@ -2090,9 +2144,9 @@ void showRoomPage() {
   bool showingDetail = false;
   while (true) {
     if (showingDetail) {
-      drawRoomStatusDetail(tInt, tempTag, hInt, humTag, ldrRaw, lightTag);
+      drawRoomStatusDetail(tInt, tempTag, hInt, humTag, lux, lightTag);
     } else {
-      drawRoomStatus(t, hInt, ldrRaw, lightTag);
+      drawRoomStatus(t, hInt, lux, lightTag);
     }
 
     bool longPress = false;
@@ -2170,10 +2224,11 @@ static void drawTrendSparkline(TrendView view) {
     prevY = y;
   }
 
-  char footBuf[16];
+  char footBuf[24];
   if (view == TREND_TEMP)      snprintf(footBuf, sizeof(footBuf), "%.1fC", vals[n - 1]);
   else if (view == TREND_HUM)  snprintf(footBuf, sizeof(footBuf), "%d%%", (int)vals[n - 1]);
-  else                          snprintf(footBuf, sizeof(footBuf), "%d", (int)vals[n - 1]);
+  else                          snprintf(footBuf, sizeof(footBuf), "%d LX %s",
+                                         (int)vals[n - 1], lightLevelTag(vals[n - 1]));
 
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
