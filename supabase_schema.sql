@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS room_readings (
   temperature FLOAT NOT NULL,
   humidity FLOAT NOT NULL,
   ldr_value FLOAT,
+  lux_value FLOAT,
   accel_total FLOAT,
   battery_v FLOAT,
   trigger_source TEXT DEFAULT 'auto',

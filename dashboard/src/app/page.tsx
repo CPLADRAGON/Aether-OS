@@ -25,6 +25,7 @@ interface Reading {
   temperature: number;
   humidity: number;
   ldr_value: number;
+  lux_value: number;
   accel_total: number;
   battery_v: number;
   trigger_source: string;
@@ -193,19 +194,19 @@ export default function Dashboard() {
   }, []);
 
   const averages = useMemo(() => {
-    if (readings.length === 0) return { temp: 0, hum: 0, ldr: 0 };
+    if (readings.length === 0) return { temp: 0, hum: 0, lux: 0 };
     const sum = readings.reduce(
       (acc, r) => ({
         temp: acc.temp + r.temperature,
         hum: acc.hum + r.humidity,
-        ldr: acc.ldr + r.ldr_value,
+        lux: acc.lux + r.lux_value,
       }),
-      { temp: 0, hum: 0, ldr: 0 }
+      { temp: 0, hum: 0, lux: 0 }
     );
     return {
       temp: sum.temp / readings.length,
       hum: sum.hum / readings.length,
-      ldr: sum.ldr / readings.length,
+      lux: sum.lux / readings.length,
     };
   }, [readings]);
 
@@ -214,13 +215,13 @@ export default function Dashboard() {
       ? {
           temp: latest?.temperature || 0,
           hum: latest?.humidity || 0,
-          ldr: latest?.ldr_value || 0,
+          lux: latest?.lux_value || 0,
           label: 'Latest sync',
         }
       : {
           temp: averages.temp,
           hum: averages.hum,
-          ldr: averages.ldr,
+          lux: averages.lux,
           label: `Period average (${timeframe})`,
         };
 
@@ -242,9 +243,16 @@ export default function Dashboard() {
     // works regardless of the device's sleep interval (5/15/30/60 min) — a 30-min
     // rolling window with a "need 5+ samples" gate almost never fires once the
     // interval exceeds ~5 minutes.
-    // LDR polarity: bright room = LOW reading, dark room = HIGH reading (see
-    // firmware ROOM_LDR_BRIGHT_MAX/ROOM_LDR_DARK_MIN). So leaving (lights off)
-    // pushes LDR UP; arriving (lights on) pushes LDR DOWN.
+    // Intentionally uses ldr_value (raw ADC), NOT lux_value: this is an
+    // internal heuristic already tuned against raw ADC behavior, not a
+    // human-facing display value. Re-deriving it against the nonlinear
+    // raw->lux conversion would require re-tuning the 0.4 relative-change
+    // threshold below for no real benefit.
+    // LDR polarity: bright room = LOW raw reading, dark room = HIGH raw
+    // reading (firmware's ADC-to-lux conversion inverts this back to the
+    // intuitive "higher lux = brighter" sense, but this heuristic works
+    // directly on the raw, uninverted signal). So leaving (lights off)
+    // pushes raw ldr_value UP; arriving (lights on) pushes it DOWN.
     let currentState: 'Home' | 'Out' = 'Home';
     for (let i = 1; i < readings.length; i++) {
       const past = readings[i - 1];

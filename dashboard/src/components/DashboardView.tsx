@@ -6,6 +6,7 @@ import KPICard from '@/components/KPICard';
 import TrendChart from '@/components/TrendChart';
 import ActivityTimeline from '@/components/ActivityTimeline';
 import SystemLogs from '@/components/SystemLogs';
+import { lightLevelDetail } from '@/lib/light';
 
 interface Reading {
   id: number;
@@ -13,6 +14,7 @@ interface Reading {
   temperature: number;
   humidity: number;
   ldr_value: number;
+  lux_value: number;
   accel_total: number;
   battery_v: number;
   trigger_source: string;
@@ -40,7 +42,7 @@ interface DashboardViewProps {
   presenceEvents: PresenceEvent[];
   formatSGTime: (dateStr: string) => string;
   comfortScore: number;
-  displayData: { temp: number; hum: number; ldr: number; label: string };
+  displayData: { temp: number; hum: number; lux: number; label: string };
   periodNavigation: React.ReactNode;
 }
 
@@ -71,12 +73,12 @@ export default function DashboardView({
     const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
     const temps = readings.map((r) => r.temperature);
     const hums = readings.map((r) => r.humidity);
-    const ldrs = readings.map((r) => r.ldr_value);
+    const luxs = readings.map((r) => r.lux_value);
     const accels = readings.map((r) => r.accel_total);
     return {
       temp: { min: Math.min(...temps), max: Math.max(...temps), avg: avg(temps) },
       hum: { min: Math.min(...hums), max: Math.max(...hums), avg: avg(hums) },
-      ldr: { min: Math.min(...ldrs), max: Math.max(...ldrs), avg: avg(ldrs) },
+      lux: { min: Math.min(...luxs), max: Math.max(...luxs), avg: avg(luxs) },
       accel: { min: Math.min(...accels), max: Math.max(...accels), avg: avg(accels) },
     };
   }, [readings]);
@@ -114,10 +116,10 @@ export default function DashboardView({
         <KPICard
           icon="light_mode"
           label="Light Intensity"
-          value={displayData.ldr.toFixed(0)}
+          value={displayData.lux.toFixed(0)}
           unit="lux"
-          progress={(displayData.ldr / 4095) * 100}
-          subLabel={displayData.label}
+          progress={(displayData.lux / 1500) * 100}
+          subLabel={`${displayData.label} · ${lightLevelDetail(displayData.lux)}`}
         />
 
         <div className="card p-5 flex flex-col items-center justify-center gap-2">
@@ -151,7 +153,7 @@ export default function DashboardView({
             <StatChip label="Temp Max" value={`${stats.temp.max.toFixed(1)}°C`} />
             <StatChip label="Temp Avg" value={`${stats.temp.avg.toFixed(1)}°C`} />
             <StatChip label="Humidity Avg" value={`${stats.hum.avg.toFixed(1)}%`} />
-            <StatChip label="Light Avg" value={`${stats.ldr.avg.toFixed(0)} lx`} />
+            <StatChip label="Light Avg" value={`${stats.lux.avg.toFixed(0)} lx`} />
             <StatChip label="Accelerometer" value={`${latest.accel_total.toFixed(2)} m/s²`} />
             <StatChip label="Accel Min" value={`${stats.accel.min.toFixed(2)} m/s²`} />
             <StatChip label="Accel Max" value={`${stats.accel.max.toFixed(2)} m/s²`} />

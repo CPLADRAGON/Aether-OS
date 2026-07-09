@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { lightLevelTag } from '@/lib/light';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
         console.error('[Telegram Webhook] Supabase Error:', error);
         responseText = "⚠️ Error fetching latest reading from database.";
       } else if (data) {
-        responseText = `📊 *LATEST STATUS*\n\n🌡 *Temp:* ${data.temperature.toFixed(1)}°C\n💧 *Hum:* ${data.humidity.toFixed(1)}%\n💡 *Light:* ${data.ldr_value} LUX\n🔋 *Battery:* ${data.battery_v.toFixed(2)}V\n🕒 *Time:* ${new Date(data.created_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}`;
+        responseText = `📊 *LATEST STATUS*\n\n🌡 *Temp:* ${data.temperature.toFixed(1)}°C\n💧 *Hum:* ${data.humidity.toFixed(1)}%\n💡 *Light:* ${data.lux_value.toFixed(0)} lx (${lightLevelTag(data.lux_value)})\n🔋 *Battery:* ${data.battery_v.toFixed(2)}V\n🕒 *Time:* ${new Date(data.created_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}`;
       }
     } else if (text.startsWith('/stats')) {
       const { data: sessions, error: sErr } = await supabase.from('device_sessions').select('duration');

@@ -11,6 +11,7 @@ interface Reading {
   temperature: number;
   humidity: number;
   ldr_value: number;
+  lux_value: number;
   accel_total: number;
   battery_v: number;
   trigger_source: string;
@@ -46,8 +47,13 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
 
     const temps = smooth(readings.map((r) => r.temperature));
     const hums = smooth(readings.map((r) => r.humidity));
-    const ldrs = smooth(readings.map((r) => r.ldr_value));
+    const luxs = smooth(readings.map((r) => r.lux_value));
 
+    // Dark-period shading intentionally uses raw ldr_value (NOT lux_value):
+    // this is an internal display heuristic already tuned against raw ADC
+    // behavior (threshold 100), not a human-facing value -- re-deriving it
+    // against the nonlinear raw->lux conversion would require re-tuning
+    // this threshold for no real benefit.
     const markAreaRanges: any[] = [];
     let startIdx = -1;
     for (let i = 0; i < readings.length; i++) {
@@ -171,7 +177,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           type: 'line',
           smooth: true,
           yAxisIndex: 2,
-          data: readings.map((r, i) => [new Date(r.created_at).getTime(), ldrs[i]]),
+          data: readings.map((r, i) => [new Date(r.created_at).getTime(), luxs[i]]),
           itemStyle: { color: '#facc15' },
           lineStyle: { width: 1.5, opacity: 0.85 },
           showSymbol: false,
