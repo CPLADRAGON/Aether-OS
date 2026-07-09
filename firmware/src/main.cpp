@@ -1879,6 +1879,107 @@ void showRoomPage() {
   waitWithButtonPoll(5000);
 }
 
+enum TrendView { TREND_TEMP, TREND_HUM, TREND_LIGHT };
+
+// Renders one sub-view of the TREND sparkline. `view` selects which metric
+// from trendHistory to plot. Points are read out in chronological order
+// (oldest first) using the ring-buffer math matching appendTrendPoint()'s
+// "head = index of most recently written point" convention.
+static void drawTrendSparkline(TrendView view) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+
+  const char *name = (view == TREND_TEMP) ? "TEMP"
+                    : (view == TREND_HUM) ? "HUM"
+                                           : "LIGHT";
+
+  if (trendHistory.count < 2) {
+    dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, name, false, dm::ICON_WIFI);
+    dm::setFont(dm::FONT_NORMAL);
+    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 18, "NOT ENOUGH");
+    dm::setFont(dm::FONT_SMALL);
+    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 30, "DATA YET");
+    dm::endFrame();
+    return;
+  }
+
+  int n = trendHistory.count;
+  float vals[12];
+  for (int i = 0; i < n; i++) {
+    int idx = (n < 12) ? i : (trendHistory.head + 1 + i) % 12;
+    TrendPoint &p = trendHistory.points[idx];
+    if (view == TREND_TEMP)      vals[i] = p.tempX10 / 10.0f;
+    else if (view == TREND_HUM)  vals[i] = (float)p.humidity;
+    else                          vals[i] = (float)p.ldr;
+  }
+
+  float delta = vals[n - 1] - vals[n - 2];
+  const char *arrow = (delta > 0.3f) ? "^" : (delta < -0.3f) ? "v" : "-";
+  char headBuf[16];
+  snprintf(headBuf, sizeof(headBuf), "%s %s", name, arrow);
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, headBuf, false, dm::ICON_WIFI);
+
+  float vMin = vals[0], vMax = vals[0];
+  for (int i = 1; i < n; i++) {
+    if (vals[i] < vMin) vMin = vals[i];
+    if (vals[i] > vMax) vMax = vals[i];
+  }
+  float range = vMax - vMin;
+  if (range < 0.01f) range = 1.0f; // flat-line guard, avoids div-by-zero
+
+  int plotX0 = OLED_OFFSET_X + 2;
+  int plotX1 = OLED_OFFSET_X + OLED_W - 2;
+  int plotY0 = OLED_OFFSET_Y + 12;
+  int plotY1 = OLED_OFFSET_Y + 36;
+  int plotH = plotY1 - plotY0;
+  int plotW = plotX1 - plotX0;
+
+  int prevX = plotX0;
+  int prevY = plotY1 - (int)(((vals[0] - vMin) / range) * plotH);
+  for (int i = 1; i < n; i++) {
+    int x = plotX0 + (plotW * i) / (n - 1);
+    int y = plotY1 - (int)(((vals[i] - vMin) / range) * plotH);
+    dm::drawLine(prevX, prevY, x, y);
+    prevX = x;
+    prevY = y;
+  }
+
+  char footBuf[16];
+  if (view == TREND_TEMP)      snprintf(footBuf, sizeof(footBuf), "%.1fC", vals[n - 1]);
+  else if (view == TREND_HUM)  snprintf(footBuf, sizeof(footBuf), "%d%%", (int)vals[n - 1]);
+  else                          snprintf(footBuf, sizeof(footBuf), "%d", (int)vals[n - 1]);
+
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  dm::setFont(dm::FONT_SMALL);
+  int fw = dm::textWidth(footBuf);
+  int fx = OLED_OFFSET_X + (OLED_W - fw) / 2;
+  if (fx < 2) fx = 2;
+  dm::drawTextInverted(fx, OLED_OFFSET_Y + OLED_H - 8, footBuf);
+  dm::endFrame();
+}
+
+void showTrendPage() {
+  int view = 0; // 0=TEMP, 1=HUM, 2=LIGHT
+  lastInteractionTime = millis();
+  buttonEvent = false;
+
+  while (millis() - lastInteractionTime < 20000) {
+    drawTrendSparkline((TrendView)view);
+
+    if (buttonEvent) {
+      buttonEvent = false;
+      view = (view + 1) % 3;
+      lastInteractionTime = millis();
+    }
+    if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
+      if (!longPressTriggered) {
+        longPressTriggered = true;
+        break;
+      }
+    }
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+  }
+}
+
 // drawMenu() is now a no-op wrapper (uiTask owns menu rendering). Kept for
 // callers that still invoke it during startup; harmless when nothing draws.
 void drawMenu() { /* moved to uiTask */ }
@@ -2079,6 +2180,8 @@ void monitorTask(void *pvParameters) {
             showStatsPage();
           else if (currentMenuIndex == PAGE_ROOM)
             showRoomPage();
+          else if (currentMenuIndex == PAGE_TREND)
+            showTrendPage();
           else if (currentMenuIndex == PAGE_PORTAL) {
             currentState = SS_WIFI_MENU;
             currentWiFiMenuIndex = 0;
