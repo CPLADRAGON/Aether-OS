@@ -216,6 +216,15 @@ void loadTrendHistory() {
     trendHistory.version = 1;
     trendHistory.count = 0;
     trendHistory.head = 0;
+    return;
+  }
+  // Defensive range check: a torn/partial flash write could otherwise leave
+  // count/head outside their valid ranges, which would cause an out-of-bounds
+  // stack write in any code that loops `for (i = 0; i < count; i++)` over a
+  // fixed-size points[12] array (e.g. drawTrendSparkline()).
+  if (trendHistory.count > 12 || trendHistory.head > 11) {
+    trendHistory.count = 0;
+    trendHistory.head = 0;
   }
 }
 
