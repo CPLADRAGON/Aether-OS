@@ -1582,7 +1582,7 @@ static void drawColumnValue(int colX, int colW, int topY,
   if (vx < colX) vx = colX;
   dm::drawText(vx, topY + VALUE_Y_OFFSET, value);
 }
-static void drawWeatherScreen(float tempC, int humPct, const char *desc) {
+static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "WEATHER", false, dm::ICON_WIFI);
 
@@ -1592,21 +1592,25 @@ static void drawWeatherScreen(float tempC, int humPct, const char *desc) {
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
   char tempBuf[6], humBuf[6];
-  snprintf(tempBuf, sizeof(tempBuf), "%d", tInt);
-  snprintf(humBuf,  sizeof(humBuf),  "%d", humPct);
+  snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
+  snprintf(humBuf,  sizeof(humBuf),  "%d%%", humPct);
 
-  // Two columns, unit lives in the label row so nothing collides horizontally.
-  drawColumnValue(OLED_OFFSET_X + 2, 28, OLED_OFFSET_Y + 11, "TEMP C", tempBuf);
-  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
-  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "HUM %", humBuf);
+  // Icon left, vertically centred in the content area (y=12..48, 36px tall,
+  // no footer on this screen -- the icon now conveys condition instead of
+  // the old inverted-bar text label).
+  int iconX = OLED_OFFSET_X + 3;
+  int iconY = OLED_OFFSET_Y + 12 + (36 - 24) / 2;
+  dm::drawIcon24(iconX, iconY, conditionIcon);
 
-  // Footer inverted bar with condition text.
-  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  // Stats stacked right: hero temp line, secondary humidity line below it.
+  // tempBuf is always exactly 3 chars ("-9C".."99C" given the clamp above),
+  // so FONT_LARGE (~10px/char) fits comfortably in the ~32px right column.
+  int rightX = OLED_OFFSET_X + 32;
+  dm::setFont(dm::FONT_LARGE);
+  dm::drawText(rightX, OLED_OFFSET_Y + 32, tempBuf);
   dm::setFont(dm::FONT_SMALL);
-  int dw = dm::textWidth(desc);
-  int dx = OLED_OFFSET_X + (OLED_W - dw) / 2;
-  if (dx < 2) dx = 2;
-  dm::drawTextInverted(dx, OLED_OFFSET_Y + OLED_H - 8, desc);
+  dm::drawText(rightX, OLED_OFFSET_Y + 44, humBuf);
+
   dm::endFrame();
 }
 
