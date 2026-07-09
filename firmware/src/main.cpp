@@ -378,20 +378,20 @@ enum MenuPage {
   PAGE_MEASURE,
   PAGE_TIME,
   PAGE_WEATHER,
+  PAGE_ROOM,
   PAGE_LOCATE,
+  PAGE_TREND,
   PAGE_LED,
   PAGE_INTERVAL,
-  PAGE_STATS,
-  PAGE_ROOM,
-  PAGE_TREND,
   PAGE_PORTAL,
+  PAGE_STATS,
   PAGE_RESET,
   PAGE_SLEEP
 };
 const int TOTAL_MENU_ITEMS = 12;
-const char *menuItems[] = {"MEASURE",     "TIME",       "WEATHER",     "LOCATE",
-                           "LED",         "INTERVAL",   "STATS",       "ROOM",
-                           "TREND",       "WIFI MENU",  "RESET STATS", "DEEP SLEEP"};
+const char *menuItems[] = {"MEASURE",     "TIME",       "WEATHER",     "ROOM",
+                           "LOCATE",      "TREND",      "LED",         "INTERVAL",
+                           "WIFI MENU",   "STATS",      "RESET STATS", "DEEP SLEEP"};
 
 enum WiFiMenuPage { WF_PORTAL, WF_SELECT, WF_CLEAR, WF_BACK };
 const char *wifiMenuItems[] = {"PORTAL", "SET TARGET", "CLEAR", "BACK"};
@@ -591,9 +591,9 @@ static bool    g_slideBufValid = false;
 
 // Icon strip mirroring menuItems / wifiMenuItems for cover-flow rendering.
 static const dm::Icon menuIcons[] = {
-    dm::ICON_MEASURE_LG, dm::ICON_TIME_LG, dm::ICON_WEATHER_LG, dm::ICON_LOCATE_LG,
-    dm::ICON_LED_LG, dm::ICON_INTERVAL_LG, dm::ICON_STATS_LG, dm::ICON_ROOM_LG,
-    dm::ICON_TREND_LG, dm::ICON_WIFIMENU_LG, dm::ICON_RESET_LG, dm::ICON_SLEEP_LG
+    dm::ICON_MEASURE_LG, dm::ICON_TIME_LG, dm::ICON_WEATHER_LG, dm::ICON_ROOM_LG,
+    dm::ICON_LOCATE_LG, dm::ICON_TREND_LG, dm::ICON_LED_LG, dm::ICON_INTERVAL_LG,
+    dm::ICON_WIFIMENU_LG, dm::ICON_STATS_LG, dm::ICON_RESET_LG, dm::ICON_SLEEP_LG
 };
 static const dm::Icon wifiMenuIcons[] = {
     dm::ICON_PORTAL_LG, dm::ICON_SELECT_LG, dm::ICON_CLEAR_LG, dm::ICON_BACK_LG
