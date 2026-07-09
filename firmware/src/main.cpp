@@ -396,7 +396,7 @@ bool oledFound = false;
 // showStatsPage(); referenced by runLocatePage/showTimePage/showWeatherPage/
 // runMeasurementFlow which come before their definitions).
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
-                            const char *ddmmyy, const char *day);
+                            const char *ddmmm, const char *day, int hour24);
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
 
 // Maps OpenWeatherMap's weather[0].main field to an icon. That field is
@@ -1539,16 +1539,46 @@ void runResetStats() {
 // is true so uiTask doesn't overwrite them.
 
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
-                            const char *ddmmyy, const char *day) {
+                            const char *ddmmm, const char *day, int hour24) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
-  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, day, false, dm::ICON_WIFI);
 
-  // Big HH:MM centred vertically in the body area. HH, ":", and MM are drawn
-  // as three independent calls at FIXED cumulative offsets — this guarantees
-  // MM's x position never depends on whether the colon is currently visible.
-  // (A previous version swapped ':' for ' ' in a combined string, but ' ' and
-  // ':' have different glyph advance widths in this numeric font, which
-  // shifted MM sideways every time the colon blinked.)
+  // No header bar on this screen (deliberate exception to the convention
+  // every other screen follows) -- day/date now live in the info strip at
+  // the bottom instead, freeing the full 48px height for the huge time.
+
+  // Sun/moon icon in its own small reserved row at the very top, drawn
+  // procedurally (no bitmap asset needed) with the same circle-primitive
+  // technique already used for the sleep animation's crescent moon. Placed
+  // in a row ABOVE the time rather than beside it -- sharing a row with the
+  // huge time digits risked colliding with the rightmost digit, since this
+  // font runs close to the full 64px width when centred.
+  int sunMoonCx = OLED_OFFSET_X + OLED_W - 7;
+  int sunMoonCy = OLED_OFFSET_Y + 4;
+  bool isDaytime = (hour24 >= 6 && hour24 < 18);
+  if (isDaytime) {
+    // Sun: filled circle + 8 short rays.
+    dm::drawFilledCircle(sunMoonCx, sunMoonCy, 2);
+    for (int i = 0; i < 8; i++) {
+      float ang = (float)i * (3.14159265f / 4.0f);
+      int x0 = sunMoonCx + (int)(cosf(ang) * 3);
+      int y0 = sunMoonCy + (int)(sinf(ang) * 3);
+      int x1 = sunMoonCx + (int)(cosf(ang) * 4);
+      int y1 = sunMoonCy + (int)(sinf(ang) * 4);
+      dm::drawLine(x0, y0, x1, y1);
+    }
+  } else {
+    // Moon: filled circle with an offset circle carved out (background
+    // colour) to create the crescent shape.
+    dm::drawFilledCircle(sunMoonCx, sunMoonCy, 3);
+    dm::clearCircle(sunMoonCx + 1, sunMoonCy - 1, 2);
+  }
+
+  // Big HH:MM. HH, ":", and MM are drawn as three independent calls at FIXED
+  // cumulative offsets — this guarantees MM's x position never depends on
+  // whether the colon is currently visible. (A previous version swapped ':'
+  // for ' ' in a combined string, but ' ' and ':' have different glyph
+  // advance widths in this numeric font, which shifted MM sideways every
+  // time the colon blinked.)
   dm::setFont(dm::FONT_HUGE);
   int hhW = dm::textWidth(hh);
   int colonW = dm::textWidth(":");
@@ -1559,28 +1589,24 @@ static void drawClockScreen(const char *hh, const char *mm, const char *ss,
 
   int secInt = (ss && ss[0] && ss[1]) ? ((ss[0]-'0')*10 + (ss[1]-'0')) : 0;
 
-  dm::drawText(x, OLED_OFFSET_Y + 12, hh);
+  dm::drawText(x, OLED_OFFSET_Y + 8, hh);
   if (!(secInt & 1)) {
-    dm::drawText(x + hhW, OLED_OFFSET_Y + 12, ":");
+    dm::drawText(x + hhW, OLED_OFFSET_Y + 8, ":");
   }
-  dm::drawText(x + hhW + colonW, OLED_OFFSET_Y + 12, mm);  // occupies y=12..30
+  dm::drawText(x + hhW + colonW, OLED_OFFSET_Y + 8, mm);  // occupies y=8..36
 
-  // Footer inverted bar: date on left, ticking seconds on right.
-  // Bar top at y=39 keeps a 8-px gap under the digits (which end at y=30).
-  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  // Thin divider separating the huge time from the info strip below.
+  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 37, OLED_W - 4);
+
+  // Info strip: day left, date right -- proportioned (FONT_SMALL, not tiny),
+  // a Pebble/G-Shock-watch-face-style treatment rather than an afterthought
+  // footer. No seconds shown anywhere in this design (colon still blinks
+  // using secInt internally, it's just not rendered as a visible number).
   dm::setFont(dm::FONT_SMALL);
-  dm::drawTextInverted(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, ddmmyy);
-  int sw = dm::textWidth(ss);
-  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - sw - 2, OLED_OFFSET_Y + OLED_H - 8, ss);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 39, day);
+  int dw = dm::textWidth(ddmmm);
+  dm::drawText(OLED_OFFSET_X + OLED_W - dw - 2, OLED_OFFSET_Y + 39, ddmmm);
 
-  // Seconds progress bar just above the footer (y=35..36), safely below the
-  // digits' descenders (which end at y=31).
-  int barX = OLED_OFFSET_X + 4;
-  int barY = OLED_OFFSET_Y + 35;
-  int barMaxW = OLED_W - 8;
-  int barFill = (barMaxW * secInt) / 60;
-  dm::drawHLine(barX, barY + 1, barMaxW);
-  if (barFill > 0) dm::drawFilledRect(barX, barY, barFill, 2);
   dm::endFrame();
 }
 
