@@ -113,6 +113,13 @@ void drawTextInverted(int x, int y, const char *s);
 void drawIcon(int x, int y, Icon icon);
 void drawIcon24(int x, int y, Icon icon);   // for the 24x24 page icons
 
+// Nearest-neighbor scales the given 24x24 XBM icon and draws it centred at
+// (cx, cy). `scale` must be in (0, 1] — 1.0 renders at the native 24x24 size,
+// smaller values render progressively smaller (e.g. 0.6 renders ~14x14).
+// Reuses the same 24x24 bitmaps as drawIcon24() — no separate small-icon
+// assets needed.
+void drawIconScaled(int cx, int cy, Icon icon, float scale);
+
 // Direct framebuffer access for slide transitions. Returns the internal U8g2
 // buffer (384 B on 64x48) and its length. Caller must have taken the frame lock.
 uint8_t *rawBuffer();
@@ -160,6 +167,10 @@ void clearRect(int x, int y, int w, int h);  // fills with background
 void drawCircle(int cx, int cy, int r);
 void drawFilledCircle(int cx, int cy, int r);
 void clearCircle(int cx, int cy, int r);   // bg-colour filled disc
+
+// Upper-half circle (arc opening upward) at radius r, centred at (cx, cy).
+// Used for the WiFi-signal-search connecting animation's concentric arcs.
+void drawArcUpperHalf(int cx, int cy, int r);
 
 // --- Composed helpers ------------------------------------------------------
 // Header bar: inverted 12px strip at y=0..11 with left-aligned title and
