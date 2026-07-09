@@ -286,6 +286,17 @@ void migrateNVS() {
 #define BLUE_PIN 27
 #define OLED_RST 16
 
+// ROOM page comfort/light thresholds. These are starting values, not
+// calibrated to any specific sensor unit — tune against your actual DHT11
+// and LDR during the Task 8 hardware verification pass.
+#define ROOM_TEMP_COLD_MAX  18   // <18C  = COLD
+#define ROOM_TEMP_COOL_MAX  23   // <23C  = COOL (else WARM below HOT max)
+#define ROOM_TEMP_WARM_MAX  28   // <28C  = WARM, >=28C = HOT
+#define ROOM_HUM_DRY_MAX    40   // <40%  = DRY
+#define ROOM_HUM_NORMAL_MAX 60   // <60%  = NORMAL, >=60% = HUMID
+#define ROOM_LDR_DARK_MAX   500  // <500  = DARK
+#define ROOM_LDR_BRIGHT_MIN 2000 // >=2000 = BRIGHT, between = DIM
+
 // --- OLED Config (native 64x48 panel via U8g2 ER constructor) ---
 #define SCREEN_WIDTH 64
 #define SCREEN_HEIGHT 48
@@ -1804,6 +1815,70 @@ void showStatsPage() {
   waitWithButtonPoll(5000);
 }
 
+// ROOM: instant local DHT11+LDR snapshot, no WiFi/upload, no history append
+// (kept separate from the quality-checked 5-sample MEASURE average).
+static void drawRoomStatus(float tempC, int humPct, int ldrRaw,
+                           const char *comfortTag, const char *lightTag) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "ROOM", false, dm::ICON_WIFI);
+
+  // Light-level tag in place of the WiFi icon slot (ROOM makes no network
+  // calls, so the WiFi indicator would be misleading here).
+  dm::setFont(dm::FONT_SMALL);
+  int ltw = dm::textWidth(lightTag);
+  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - ltw - 2, OLED_OFFSET_Y + 2, lightTag);
+
+  int tInt = (int)(tempC + 0.5f);
+  if (tInt > 99) tInt = 99;
+  if (tInt < -9) tInt = -9;
+  char tempBuf[6], humBuf[6];
+  snprintf(tempBuf, sizeof(tempBuf), "%d", tInt);
+  snprintf(humBuf, sizeof(humBuf), "%d", humPct);
+
+  drawColumnValue(OLED_OFFSET_X + 2, 28, OLED_OFFSET_Y + 11, "TEMP C", tempBuf);
+  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
+  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "HUM %", humBuf);
+
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  dm::setFont(dm::FONT_SMALL);
+  int cw = dm::textWidth(comfortTag);
+  int cx = OLED_OFFSET_X + (OLED_W - cw) / 2;
+  if (cx < 2) cx = 2;
+  dm::drawTextInverted(cx, OLED_OFFSET_Y + OLED_H - 8, comfortTag);
+  dm::endFrame();
+}
+
+void showRoomPage() {
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+  int ldrRaw = analogRead(LDR_PIN);
+
+  if (isnan(t) || isnan(h)) {
+    drawErrorScreen("ROOM", "SENSOR", "READ FAIL");
+    waitWithButtonPoll(2000);
+    return;
+  }
+
+  int tInt = (int)(t + 0.5f);
+  const char *tempTag = (tInt < ROOM_TEMP_COLD_MAX)   ? "COLD"
+                       : (tInt < ROOM_TEMP_COOL_MAX)   ? "COOL"
+                       : (tInt < ROOM_TEMP_WARM_MAX)   ? "WARM"
+                                                        : "HOT";
+  int hInt = (int)(h + 0.5f);
+  const char *humTag = (hInt < ROOM_HUM_DRY_MAX)      ? "DRY"
+                      : (hInt < ROOM_HUM_NORMAL_MAX)   ? "NORMAL"
+                                                        : "HUMID";
+  char comfortTag[16];
+  snprintf(comfortTag, sizeof(comfortTag), "%s+%s", tempTag, humTag);
+
+  const char *lightTag = (ldrRaw < ROOM_LDR_DARK_MAX)     ? "DARK"
+                        : (ldrRaw < ROOM_LDR_BRIGHT_MIN)   ? "DIM"
+                                                             : "BRIGHT";
+
+  drawRoomStatus(t, hInt, ldrRaw, comfortTag, lightTag);
+  waitWithButtonPoll(5000);
+}
+
 // drawMenu() is now a no-op wrapper (uiTask owns menu rendering). Kept for
 // callers that still invoke it during startup; harmless when nothing draws.
 void drawMenu() { /* moved to uiTask */ }
@@ -2002,6 +2077,8 @@ void monitorTask(void *pvParameters) {
             dm::toast(buf, 900);
           } else if (currentMenuIndex == PAGE_STATS)
             showStatsPage();
+          else if (currentMenuIndex == PAGE_ROOM)
+            showRoomPage();
           else if (currentMenuIndex == PAGE_PORTAL) {
             currentState = SS_WIFI_MENU;
             currentWiFiMenuIndex = 0;
