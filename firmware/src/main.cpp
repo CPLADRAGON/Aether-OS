@@ -2013,70 +2013,51 @@ void enterDeepSleep() {
   currentState = SS_SLEEPING;
   g_menuOwnedByPage = true;   // Suppress uiTask menu render during sleep anim
   if (oledFound) {
-    // Sleep sequence, three visually-distinct phases:
-    //   Phase 1 (0..600ms):  "GOOD NITE" reveal — text wipes in from top
-    //   Phase 2 (600..1000ms): CRT-off vertical collapse — top+bottom black
-    //                          bars converge to a bright midline
-    //   Phase 3 (1000..1200ms): midline shrinks horizontally to a centre dot,
-    //                          then a brief flash, then black.
-    const int P1_FRAMES = 12;
-    const int P2_FRAMES = 8;
-    const int P3_FRAMES = 4;
+    // Sleep sequence, two visually-distinct phases:
+    //   Phase 1 (0..~900ms): moon + 3 stars shown; stars blink out one at a
+    //                        time, sequentially.
+    //   Phase 2 (~900..1350ms): moon shrinks to a point, brief flash, black.
+    const int STAR_FRAMES   = 6;  // ~300ms per star at 50ms/frame
+    const int SHRINK_FRAMES = 8;  // ~400ms moon shrink at 50ms/frame
 
-    // Phase 1: reveal via retracting bg mask from bottom.
-    for (int i = 0; i < P1_FRAMES; i++) {
+    const int moonX = OLED_OFFSET_X + OLED_W / 2;
+    const int moonY = OLED_OFFSET_Y + 10 + (OLED_H - 10) / 2;
+    const int moonRMax = 10;
+    struct StarPos { int x, y; };
+    const StarPos stars[3] = {
+      {OLED_OFFSET_X + 14, OLED_OFFSET_Y + 14},
+      {OLED_OFFSET_X + 46, OLED_OFFSET_Y + 12},
+      {OLED_OFFSET_X + 50, OLED_OFFSET_Y + 24},
+    };
+
+    // Phase 1: stars blink out one at a time (moon stays full size).
+    for (int i = 0; i < STAR_FRAMES * 3; i++) {
       if (!dm::beginFrame(portMAX_DELAY)) break;
       dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "SLEEP", false, dm::ICON_WIFI);
-      dm::setFont(dm::FONT_HUGE);
-      const char *msg = "GOOD";
-      int mw = dm::textWidth(msg);
-      dm::drawText(OLED_OFFSET_X + (OLED_W - mw) / 2, OLED_OFFSET_Y + 12, msg);
-      dm::setFont(dm::FONT_LARGE);
-      const char *msg2 = "NITE";
-      int mw2 = dm::textWidth(msg2);
-      dm::drawText(OLED_OFFSET_X + (OLED_W - mw2) / 2, OLED_OFFSET_Y + 30, msg2);
-      // Retract bg mask from bottom
-      int revealH = (OLED_H - 10) * (P1_FRAMES - i) / P1_FRAMES;
-      if (revealH > 0) {
-        dm::clearRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - revealH,
-                      OLED_W, revealH);
+      // Crescent moon: filled circle with an offset black circle carved out.
+      dm::drawFilledCircle(moonX, moonY, moonRMax);
+      dm::clearCircle(moonX + moonRMax / 2, moonY - moonRMax / 3, (int)(moonRMax * 0.85f));
+      for (int s = 0; s < 3; s++) {
+        int outAtFrame = (s + 1) * STAR_FRAMES;
+        if (i < outAtFrame) {
+          dm::drawFilledRect(stars[s].x, stars[s].y, 2, 2);
+        }
       }
       dm::endFrame();
       vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 
-    // Phase 2: CRT-off vertical collapse.
-    for (int i = 0; i <= P2_FRAMES; i++) {
+    // Phase 2: moon shrinks to a point, brief flash, black.
+    for (int i = 0; i <= SHRINK_FRAMES; i++) {
       if (!dm::beginFrame(portMAX_DELAY)) break;
       dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "SLEEP", false, dm::ICON_WIFI);
-      dm::setFont(dm::FONT_HUGE);
-      const char *msg = "GOOD";
-      int mw = dm::textWidth(msg);
-      dm::drawText(OLED_OFFSET_X + (OLED_W - mw) / 2, OLED_OFFSET_Y + 12, msg);
-      dm::setFont(dm::FONT_LARGE);
-      const char *msg2 = "NITE";
-      int mw2 = dm::textWidth(msg2);
-      dm::drawText(OLED_OFFSET_X + (OLED_W - mw2) / 2, OLED_OFFSET_Y + 30, msg2);
-
-      int midY = OLED_OFFSET_Y + 10 + (OLED_H - 10) / 2;
-      int barMax = (OLED_H - 10) / 2;
-      int barH = (barMax * i) / P2_FRAMES;
-      dm::clearRect(OLED_OFFSET_X, midY - barH, OLED_W, barH);
-      dm::clearRect(OLED_OFFSET_X, midY, OLED_W, barH);
-      dm::drawHLine(OLED_OFFSET_X, midY, OLED_W);
-      dm::endFrame();
-      vTaskDelay(50 / portTICK_PERIOD_MS);
-    }
-
-    // Phase 3: horizontal collapse of the midline to a centre dot.
-    for (int i = 0; i <= P3_FRAMES; i++) {
-      if (!dm::beginFrame(portMAX_DELAY)) break;
-      int midY = OLED_OFFSET_Y + 10 + (OLED_H - 10) / 2;
-      int lineW = (OLED_W * (P3_FRAMES - i)) / P3_FRAMES;
-      int lineX = OLED_OFFSET_X + (OLED_W - lineW) / 2;
-      if (lineW > 0) dm::drawHLine(lineX, midY, lineW);
-      if (i == P3_FRAMES) {
-        dm::drawFilledCircle(OLED_OFFSET_X + OLED_W / 2, midY, 1);
+      int r = moonRMax * (SHRINK_FRAMES - i) / SHRINK_FRAMES;
+      if (r > 0) {
+        dm::drawFilledCircle(moonX, moonY, r);
+        dm::clearCircle(moonX + r / 2, moonY - r / 3, (int)(r * 0.85f));
+      }
+      if (i == SHRINK_FRAMES) {
+        dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, OLED_H);
       }
       dm::endFrame();
       vTaskDelay(50 / portTICK_PERIOD_MS);
