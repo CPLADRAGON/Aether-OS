@@ -307,6 +307,7 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   snprintf(humBuf,  sizeof(humBuf),  "%d%%", humPct);
 
   // Icon left, vertically centred in the content area (y=12..48, 36px tall,
+  // Icon left, vertically centred in the content area (y=12..47, 36px tall,
   // no footer on this screen -- the icon now conveys condition instead of
   // the old inverted-bar text label).
   int iconX = OLED_OFFSET_X + 3;
@@ -314,13 +315,16 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   dm::drawIcon24(iconX, iconY, conditionIcon);
 
   // Stats stacked right: hero temp line, secondary humidity line below it.
-  // tempBuf is always exactly 3 chars ("-9C".."99C" given the clamp above),
-  // so FONT_LARGE (~10px/char) fits comfortably in the ~32px right column.
+  // Text is drawn with setFontPosTop() in effect (see display_manager.cpp),
+  // so these y-values are the TOP of each glyph, not its baseline -- top +
+  // font height must stay within the 48px panel. FONT_LARGE (~20px tall)
+  // at y=14 ends around y=34; FONT_SMALL (~7px tall) at y=36 ends around
+  // y=43, comfortably inside the panel with margin to spare.
   int rightX = OLED_OFFSET_X + 32;
   dm::setFont(dm::FONT_LARGE);
-  dm::drawText(rightX, OLED_OFFSET_Y + 32, tempBuf);
+  dm::drawText(rightX, OLED_OFFSET_Y + 14, tempBuf);
   dm::setFont(dm::FONT_SMALL);
-  dm::drawText(rightX, OLED_OFFSET_Y + 44, humBuf);
+  dm::drawText(rightX, OLED_OFFSET_Y + 36, humBuf);
 
   dm::endFrame();
 }
@@ -410,11 +414,19 @@ static void drawMeasureSample(int sampleIdx, int totalSamples,
   dm::drawIcon24(iconX, iconY, dm::ICON_MEASURE_LG);
 
   // Stats stacked right: hero temp line, secondary humidity line below it.
+  // Text is drawn with setFontPosTop() in effect (see display_manager.cpp),
+  // so y-values are the TOP of each glyph. This content area (27px) is
+  // tighter than Weather's (36px) since the LDR footer stays, so the hero
+  // line uses FONT_NORMAL (~10px tall) instead of Weather's FONT_LARGE
+  // (~20px) -- FONT_LARGE would not leave enough room for the secondary
+  // line before the footer starts at y=39. FONT_NORMAL at y=13 ends around
+  // y=23; FONT_SMALL (~7px) at y=25 ends around y=32, safely clear of the
+  // footer with margin to spare.
   int rightX = OLED_OFFSET_X + 32;
-  dm::setFont(dm::FONT_LARGE);
-  dm::drawText(rightX, OLED_OFFSET_Y + 27, tempBuf);
+  dm::setFont(dm::FONT_NORMAL);
+  dm::drawText(rightX, OLED_OFFSET_Y + 13, tempBuf);
   dm::setFont(dm::FONT_SMALL);
-  dm::drawText(rightX, OLED_OFFSET_Y + 37, humBuf);
+  dm::drawText(rightX, OLED_OFFSET_Y + 25, humBuf);
 
   // Footer: LDR value in inverted bar (unchanged from before).
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
