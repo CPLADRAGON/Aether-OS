@@ -1593,7 +1593,7 @@ static void drawClockScreen(const char *hh, const char *mm, const char *ss,
   if (!(secInt & 1)) {
     dm::drawText(x + hhW, OLED_OFFSET_Y + 8, ":");
   }
-  dm::drawText(x + hhW + colonW, OLED_OFFSET_Y + 8, mm);  // occupies y=8..36
+  dm::drawText(x + hhW + colonW, OLED_OFFSET_Y + 8, mm);  // occupies y=8..26 (FONT_HUGE = logisoso18, 18px tall)
 
   // Thin divider separating the huge time from the info strip below.
   dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 37, OLED_W - 4);
