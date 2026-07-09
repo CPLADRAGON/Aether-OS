@@ -2031,7 +2031,11 @@ void enterDeepSleep() {
     };
 
     // Phase 1: stars blink out one at a time (moon stays full size).
-    for (int i = 0; i < STAR_FRAMES * 3; i++) {
+    // Runs one extra frame beyond STAR_FRAMES*3 so the 3rd star actually gets
+    // a frame where it's off, instead of still being visible when Phase 2
+    // starts (its outAtFrame == the old loop bound, so it never got a chance
+    // to disappear).
+    for (int i = 0; i <= STAR_FRAMES * 3; i++) {
       if (!dm::beginFrame(portMAX_DELAY)) break;
       dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "SLEEP", false, dm::ICON_WIFI);
       // Crescent moon: filled circle with an offset black circle carved out.
