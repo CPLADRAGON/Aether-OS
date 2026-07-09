@@ -474,6 +474,36 @@ bool waitWithButtonPoll(unsigned long ms) {
   return false;
 }
 
+// Waits for either a completed short tap or a long press, distinguishing
+// them as discrete events (unlike waitWithButtonPoll(), which treats any
+// button activity the same). Used by showRoomPage() to toggle between its
+// main view and status subpage on short tap, while still exiting instantly
+// on long press (checked continuously while held, matching the existing
+// "check for long press to exit instantly" pattern used elsewhere in this
+// file, e.g. in runMeasurementFlow()).
+//
+// Returns true if any interaction occurred (and sets *longPress
+// accordingly), or false on timeout with no interaction at all.
+bool waitRoomInteraction(unsigned long ms, bool *longPress) {
+  *longPress = false;
+  buttonEvent = false;
+  unsigned long start = millis();
+  while (millis() - start < ms) {
+    if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
+      *longPress = true;
+      lastInteractionTime = millis();
+      return true;
+    }
+    if (buttonEvent) {
+      buttonEvent = false;
+      lastInteractionTime = millis();
+      return true; // short tap
+    }
+    vTaskDelay(20 / portTICK_PERIOD_MS);
+  }
+  return false;
+}
+
 // --- Menu scroll tween state (Phase 1) ---
 // menuTween interpolates between the previous and next currentMenuIndex when a
 // button press advances the menu. drawMenuAnimated() consumes the tween value.
