@@ -1797,6 +1797,43 @@ static void drawLocateResult(const char *city) {
   dm::endFrame();
 }
 
+// Builds the most detailed "<prefix><tag> <lux>LX" label that still fits
+// maxWidthPx at the CURRENTLY ACTIVE font (caller must dm::setFont() first
+// -- dm::textWidth() measures against whatever font is currently set), but
+// -- unlike a binary "fits or drop the whole value" guard -- this NEVER
+// drops the lux number itself. `prefix` may be "" (Measure/Trend footers
+// have none) or e.g. "L:" (Room Status subpage's column style). Tries
+// progressively shorter forms and stops at the first one that fits:
+//   1. "<prefix><tag> <lux>LX"   (full detail, e.g. "L:DARK 12LX")
+//   2. "<prefix><tag> <lux>"     (drop the unit, e.g. "L:BRIGHT 850")
+//   3. "<prefix><abbrev> <lux>"  (3-letter tag, e.g. "L:BRI 850")
+//   4. "<abbrev> <lux>"          (drop the prefix too)
+//   5. "<lux>"                   (bare number, guaranteed to fit)
+// This matters because BRIGHT (6 chars) is meaningfully longer than DARK
+// (4) or DIM (3) -- a one-size-fits-all format either wastes space for
+// DARK/DIM (which have plenty of room for the full "LX" unit and prefix)
+// or overflows for BRIGHT. Measuring per-tier with the real font metrics
+// gets the most detail for every tag rather than sacrificing detail (or
+// worse, silently losing the number) for all of them to accommodate the
+// worst case.
+static void buildLightLabel(char *out, size_t outSize, int maxWidthPx,
+                            int lux, const char *tag, const char *prefix = "") {
+  snprintf(out, outSize, "%s%s %dLX", prefix, tag, lux);
+  if (dm::textWidth(out) <= maxWidthPx) return;
+
+  snprintf(out, outSize, "%s%s %d", prefix, tag, lux);
+  if (dm::textWidth(out) <= maxWidthPx) return;
+
+  char abbrev[4] = {tag[0], tag[1], tag[2], '\0'}; // BRI/DIM/DAR -- all 3 tags are >=3 chars
+  snprintf(out, outSize, "%s%s %d", prefix, abbrev, lux);
+  if (dm::textWidth(out) <= maxWidthPx) return;
+
+  snprintf(out, outSize, "%s %d", abbrev, lux);
+  if (dm::textWidth(out) <= maxWidthPx) return;
+
+  snprintf(out, outSize, "%d", lux);
+}
+
 static void drawMeasureSample(int sampleIdx, int totalSamples,
                               float tempC, int humPct, int lux) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
@@ -1836,13 +1873,14 @@ static void drawMeasureSample(int sampleIdx, int totalSamples,
 
   // Footer: lux value + qualitative tag in inverted bar (previously showed
   // raw ADC counts, which are meaningless to a human -- see ldrRawToLux()).
-  // No "LX" unit suffix (see drawRoomStatusDetail()'s comment on the same
-  // issue) -- "850 LX BRIGHT" is long enough to risk clipping on this
-  // narrow 64px footer with the longest tag; the unit is redundant given
-  // the screen context.
+  // Uses buildLightLabel() so DARK/DIM (which have plenty of room) keep
+  // their "LX" unit, and only BRIGHT (the longest tag) progressively drops
+  // detail if it would actually overflow this 64px footer -- see
+  // buildLightLabel()'s comment for why a one-size-fits-all format was
+  // wrong (either wasted space or silently lost the value).
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
-  char lb[20]; snprintf(lb, sizeof(lb), "%d %s", lux, lightLevelTag(lux));
+  char lb[20]; buildLightLabel(lb, sizeof(lb), OLED_W - 4, lux, lightLevelTag(lux));
   int lw = dm::textWidth(lb);
   int lx = OLED_OFFSET_X + (OLED_W - lw) / 2;
   if (lx < 2) lx = 2;
@@ -2100,14 +2138,6 @@ static void drawRoomStatusDetail(int tempInt, const char *tempTag,
   char tLine[20], hLine[20], lLine[20];
   snprintf(tLine, sizeof(tLine), "T:%s %dC", tempTag, tempInt);
   snprintf(hLine, sizeof(hLine), "H:%s %d%%", humTag, humPct);
-  // No "LX" unit suffix here (unlike T:'s "C" / H:'s "%") -- with the
-  // longest tag (BRIGHT, 6 chars) and a 4-digit lux value, "L:BRIGHT
-  // 1000LX" reliably overflowed the 64px panel and silently dropped the
-  // lux value entirely via the fallback below, which is the actual bug a
-  // user hit in a bright room. "L:BRIGHT 1000" is the same length as
-  // "H:NORMAL 100%" (13 chars), which was never observed to overflow, so
-  // dropping the unit suffix here fixes it without shrinking the font.
-  snprintf(lLine, sizeof(lLine), "L:%s %d", lightTag, lux);
 
   // Guard against the rare case where a long tag + value combination would
   // overflow the 64px panel width -- drop the value for that specific line
@@ -2116,7 +2146,14 @@ static void drawRoomStatusDetail(int tempInt, const char *tempTag,
   // drawColumnValue()).
   if (dm::textWidth(tLine) > OLED_W - 4) snprintf(tLine, sizeof(tLine), "T:%s", tempTag);
   if (dm::textWidth(hLine) > OLED_W - 4) snprintf(hLine, sizeof(hLine), "H:%s", humTag);
-  if (dm::textWidth(lLine) > OLED_W - 4) snprintf(lLine, sizeof(lLine), "L:%s", lightTag);
+  // The L line uses buildLightLabel() instead of the binary drop-the-value
+  // guard above: BRIGHT (6 chars) is long enough that "L:BRIGHT 1000LX"
+  // overflows the 64px panel, but a fixed-format fallback (e.g. always
+  // dropping the "LX" unit) either overflows anyway or needlessly loses
+  // detail DARK/DIM had room for. This measures the real font width per
+  // tier and keeps as much detail as fits -- see buildLightLabel()'s
+  // comment -- and never drops the lux number itself.
+  buildLightLabel(lLine, sizeof(lLine), OLED_W - 4, lux, lightTag, "L:");
 
   dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 16, tLine);
   dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 26, hLine);
@@ -2235,14 +2272,15 @@ static void drawTrendSparkline(TrendView view) {
     prevY = y;
   }
 
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  dm::setFont(dm::FONT_SMALL);
+
   char footBuf[24];
   if (view == TREND_TEMP)      snprintf(footBuf, sizeof(footBuf), "%.1fC", vals[n - 1]);
   else if (view == TREND_HUM)  snprintf(footBuf, sizeof(footBuf), "%d%%", (int)vals[n - 1]);
-  else                          snprintf(footBuf, sizeof(footBuf), "%d %s", // no "LX" -- see
-                                         (int)vals[n - 1], lightLevelTag(vals[n - 1])); // drawRoomStatusDetail()
+  else                          buildLightLabel(footBuf, sizeof(footBuf), OLED_W - 4,
+                                                (int)vals[n - 1], lightLevelTag(vals[n - 1]));
 
-  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
-  dm::setFont(dm::FONT_SMALL);
   int fw = dm::textWidth(footBuf);
   int fx = OLED_OFFSET_X + (OLED_W - fw) / 2;
   if (fx < 2) fx = 2;
