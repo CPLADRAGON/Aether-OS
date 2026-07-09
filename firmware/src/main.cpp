@@ -1912,13 +1912,27 @@ static void drawRoomStatus(float tempC, int humPct, int ldrRaw,
   int tInt = (int)(tempC + 0.5f);
   if (tInt > 99) tInt = 99;
   if (tInt < -9) tInt = -9;
+  if (humPct > 99) humPct = 99;
+  if (humPct < 0)  humPct = 0;
   char tempBuf[6], humBuf[6];
-  snprintf(tempBuf, sizeof(tempBuf), "%d", tInt);
-  snprintf(humBuf, sizeof(humBuf), "%d", humPct);
+  snprintf(tempBuf, sizeof(tempBuf), "%dC", tInt);
+  snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
-  drawColumnValue(OLED_OFFSET_X + 2, 28, OLED_OFFSET_Y + 11, "TEMP C", tempBuf);
-  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
-  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "HUM %", humBuf);
+  // Icon left, vertically centred in the content area (y=12..39, 27px tall
+  // -- same tight budget as the Measure scan screen since this screen also
+  // keeps a footer (comfort tag) below). Reuses Measure's already
+  // pixel-verified font choices/y-values: FONT_NORMAL hero + FONT_SMALL
+  // secondary, both drawn top-anchored (setFontPosTop()) and clear of the
+  // footer starting at y=39.
+  int iconX = OLED_OFFSET_X + 3;
+  int iconY = OLED_OFFSET_Y + 12 + (27 - 24) / 2;
+  dm::drawIcon24(iconX, iconY, dm::ICON_ROOM_LG);
+
+  int rightX = OLED_OFFSET_X + 32;
+  dm::setFont(dm::FONT_NORMAL);
+  dm::drawText(rightX, OLED_OFFSET_Y + 13, tempBuf);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawText(rightX, OLED_OFFSET_Y + 25, humBuf);
 
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
   dm::setFont(dm::FONT_SMALL);
