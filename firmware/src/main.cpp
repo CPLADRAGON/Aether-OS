@@ -2252,6 +2252,14 @@ void monitorTask(void *pvParameters) {
 void setup() {
   Serial.begin(115200);
   Wire.begin(21, 22);
+  // Bump from the ESP32 core's default 100kHz (Standard Mode) to 400kHz
+  // (Fast Mode). The OLED's full-framebuffer commit (~410-430 bytes incl.
+  // page-addressing overhead) takes ~33ms at 100kHz -- already longer than
+  // uiTask's 16ms animation tick budget, capping real animation frame rate
+  // well below the intended ~60fps regardless of how fast the draw calls
+  // are. At 400kHz the same transfer takes ~8ms, comfortably inside budget.
+  // 400kHz is supported by virtually all SSD1306 breakout wiring.
+  Wire.setClock(400000);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(BUTTON_PIN, handleButtonInterrupt, CHANGE);
 
