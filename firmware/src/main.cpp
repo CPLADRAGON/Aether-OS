@@ -395,7 +395,7 @@ bool oledFound = false;
 // Forward declarations for the redesigned page renderers (defined near
 // showStatsPage(); referenced by runLocatePage/showTimePage/showWeatherPage/
 // runMeasurementFlow which come before their definitions).
-static void drawClockScreen(const char *hhmm, const char *ss,
+static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmyy, const char *day);
 static void drawWeatherScreen(float tempC, int humPct, const char *desc);
 static void drawStatsScreen(uint32_t measures, uint32_t boots, uint32_t uptimeMin);
@@ -1202,14 +1202,15 @@ void showTimePage() {
 
   while (millis() - start < 8000) {
     if (getLocalTime(&tinfo)) {
-      char hhmm[6], ss[4], dStr[12], dayStr[16];
-      strftime(hhmm, sizeof(hhmm), "%H:%M", &tinfo);
-      strftime(ss,   sizeof(ss),   "%S",    &tinfo);
+      char hh[3], mm[3], ss[4], dStr[12], dayStr[16];
+      strftime(hh,   sizeof(hh),   "%H", &tinfo);
+      strftime(mm,   sizeof(mm),   "%M", &tinfo);
+      strftime(ss,   sizeof(ss),   "%S", &tinfo);
       strftime(dStr, sizeof(dStr), "%d/%m", &tinfo);
       strftime(dayStr, sizeof(dayStr), "%a", &tinfo);
       String day = String(dayStr);
       day.toUpperCase();
-      drawClockScreen(hhmm, ss, dStr, day.c_str());
+      drawClockScreen(hh, mm, ss, dStr, day.c_str());
     }
     if (waitWithButtonPoll(500))
       break; // Cancel on button press
@@ -1471,32 +1472,32 @@ void runResetStats() {
 // bespoke layout, and returns. Called from monitorTask while g_menuOwnedByPage
 // is true so uiTask doesn't overwrite them.
 
-static void drawClockScreen(const char *hhmm, const char *ss,
+static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmyy, const char *day) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
   dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, day, false, dm::ICON_WIFI);
 
-  // Big HH:MM centred vertically in the body area.
+  // Big HH:MM centred vertically in the body area. HH, ":", and MM are drawn
+  // as three independent calls at FIXED cumulative offsets — this guarantees
+  // MM's x position never depends on whether the colon is currently visible.
+  // (A previous version swapped ':' for ' ' in a combined string, but ' ' and
+  // ':' have different glyph advance widths in this numeric font, which
+  // shifted MM sideways every time the colon blinked.)
   dm::setFont(dm::FONT_HUGE);
-  int w = dm::textWidth(hhmm);  // width measured WITH the colon so centering
-                                 // never shifts when the colon blinks off.
-  int x = OLED_OFFSET_X + (OLED_W - w) / 2;
+  int hhW = dm::textWidth(hh);
+  int colonW = dm::textWidth(":");
+  int mmW = dm::textWidth(mm);
+  int totalW = hhW + colonW + mmW;
+  int x = OLED_OFFSET_X + (OLED_W - totalW) / 2;
   if (x < 0) x = 0;
 
   int secInt = (ss && ss[0] && ss[1]) ? ((ss[0]-'0')*10 + (ss[1]-'0')) : 0;
 
-  // Classic digital-clock heartbeat: blink the ':' itself (swap to a space on
-  // odd seconds) rather than an unrelated side indicator. Same string length
-  // is preserved so the centred x position never jumps.
-  char blinked[8];
-  strncpy(blinked, hhmm, sizeof(blinked) - 1);
-  blinked[sizeof(blinked) - 1] = '\0';
-  if (secInt & 1) {
-    for (char *p = blinked; *p; p++) {
-      if (*p == ':') *p = ' ';
-    }
+  dm::drawText(x, OLED_OFFSET_Y + 12, hh);
+  if (!(secInt & 1)) {
+    dm::drawText(x + hhW, OLED_OFFSET_Y + 12, ":");
   }
-  dm::drawText(x, OLED_OFFSET_Y + 12, blinked);  // occupies y=12..30
+  dm::drawText(x + hhW + colonW, OLED_OFFSET_Y + 12, mm);  // occupies y=12..30
 
   // Footer inverted bar: date on left, ticking seconds on right.
   // Bar top at y=39 keeps a 8-px gap under the digits (which end at y=30).
