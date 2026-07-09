@@ -1,6 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
+import { useMemo } from 'react';
 import KPICard from '@/components/KPICard';
 import TrendChart from '@/components/TrendChart';
 import ActivityTimeline from '@/components/ActivityTimeline';
@@ -31,6 +32,7 @@ interface PresenceEvent {
 
 interface DashboardViewProps {
   readings: Reading[];
+  latest: Reading | null;
   logs: DeviceLog[];
   timeframe: 'day' | 'week' | 'month' | 'year';
   timeRange: { start: Date; end: Date };
@@ -42,8 +44,18 @@ interface DashboardViewProps {
   periodNavigation: React.ReactNode;
 }
 
+function StatChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-0.5 px-3 py-2 rounded-md bg-[#0d0d0f] border border-[#1f1f23]">
+      <span className="text-[10px] text-[#6b7280]">{label}</span>
+      <span className="text-xs font-mono text-[#a1a1aa]">{value}</span>
+    </div>
+  );
+}
+
 export default function DashboardView({
   readings,
+  latest,
   logs,
   timeframe,
   timeRange,
@@ -54,14 +66,27 @@ export default function DashboardView({
   displayData,
   periodNavigation,
 }: DashboardViewProps) {
+  const stats = useMemo(() => {
+    if (readings.length === 0) return null;
+    const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
+    const temps = readings.map((r) => r.temperature);
+    const hums = readings.map((r) => r.humidity);
+    const ldrs = readings.map((r) => r.ldr_value);
+    const accels = readings.map((r) => r.accel_total);
+    return {
+      temp: { min: Math.min(...temps), max: Math.max(...temps), avg: avg(temps) },
+      hum: { min: Math.min(...hums), max: Math.max(...hums), avg: avg(hums) },
+      ldr: { min: Math.min(...ldrs), max: Math.max(...ldrs), avg: avg(ldrs) },
+      accel: { min: Math.min(...accels), max: Math.max(...accels), avg: avg(accels) },
+    };
+  }, [readings]);
+
   if (loading && readings.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-12 h-12 border-4 border-[#00f3ff] border-t-transparent rounded-full animate-spin" />
-          <p className="text-[#00f3ff] font-bold tracking-widest animate-pulse uppercase font-headline">
-            Booting_Aether_OS
-          </p>
+          <div className="w-10 h-10 border-2 border-[#818cf8] border-t-transparent rounded-full animate-spin" />
+          <p className="text-[#a1a1aa] text-sm">Loading…</p>
         </div>
       </div>
     );
@@ -72,99 +97,95 @@ export default function DashboardView({
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
         <KPICard
           icon="thermostat"
-          label="TEMPERATURE"
+          label="Temperature"
           value={displayData.temp.toFixed(1)}
           unit="°C"
-          color="cyan"
           progress={(displayData.temp / 50) * 100}
           subLabel={displayData.label}
         />
         <KPICard
           icon="humidity_percentage"
-          label="HUMIDITY"
+          label="Humidity"
           value={displayData.hum.toFixed(1)}
           unit="%"
-          color="magenta"
           progress={displayData.hum}
           subLabel={displayData.label}
         />
         <KPICard
           icon="light_mode"
-          label="LIGHT INTENSITY"
+          label="Light Intensity"
           value={displayData.ldr.toFixed(0)}
-          unit="LUX"
-          color="lime"
+          unit="lux"
           progress={(displayData.ldr / 4095) * 100}
           subLabel={displayData.label}
         />
 
-        {/* Comfort Index Card */}
-        <div className="glass-panel-heavy p-5 rounded-xl flex flex-col items-center justify-center gap-2 relative overflow-hidden group">
-          <div className="absolute inset-0 bg-gradient-to-t from-[#00f3ff]/10 to-transparent opacity-50" />
-          <p className="text-[10px] font-headline text-white/40 uppercase tracking-widest z-10">Comfort Index</p>
+        <div className="card p-5 flex flex-col items-center justify-center gap-2">
+          <p className="text-xs text-[#6b7280]">Comfort Index</p>
           <motion.div
             key={comfortScore}
-            initial={{ scale: 0.8, opacity: 0.5 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: 'spring', stiffness: 200, damping: 10 }}
-            className="flex items-baseline gap-1 z-10"
+            initial={{ opacity: 0.5 }}
+            animate={{ opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 15 }}
+            className="flex items-baseline gap-1"
           >
-            <span className="text-5xl font-headline font-black text-white drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
-              {comfortScore}
-            </span>
-            <span className="text-sm text-white/40 font-body">/100</span>
+            <span className="text-4xl font-semibold text-[#f4f4f5]">{comfortScore}</span>
+            <span className="text-sm text-[#6b7280]">/100</span>
           </motion.div>
-          <div className="w-full bg-white/5 h-1.5 rounded-full mt-4 overflow-hidden z-10">
+          <div className="w-full bg-[#1f1f23] h-1 rounded-full mt-3 overflow-hidden">
             <motion.div
-              className="h-full progress-rainbow"
+              className="h-full bg-[#818cf8] rounded-full"
               initial={{ width: 0 }}
               animate={{ width: `${comfortScore}%` }}
-              transition={{ duration: 1 }}
+              transition={{ duration: 0.8 }}
             />
           </div>
         </div>
       </div>
 
-      {/* Trend Analysis + Side Panel */}
+      {latest && stats && (
+        <div className="card p-5">
+          <p className="text-xs text-[#6b7280] mb-3">Sensor Details</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
+            <StatChip label="Temp Min" value={`${stats.temp.min.toFixed(1)}°C`} />
+            <StatChip label="Temp Max" value={`${stats.temp.max.toFixed(1)}°C`} />
+            <StatChip label="Temp Avg" value={`${stats.temp.avg.toFixed(1)}°C`} />
+            <StatChip label="Humidity Avg" value={`${stats.hum.avg.toFixed(1)}%`} />
+            <StatChip label="Light Avg" value={`${stats.ldr.avg.toFixed(0)} lx`} />
+            <StatChip label="Accelerometer" value={`${latest.accel_total.toFixed(2)} m/s²`} />
+            <StatChip label="Accel Min" value={`${stats.accel.min.toFixed(2)} m/s²`} />
+            <StatChip label="Accel Max" value={`${stats.accel.max.toFixed(2)} m/s²`} />
+            <StatChip label="Accel Avg" value={`${stats.accel.avg.toFixed(2)} m/s²`} />
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-10 gap-6">
-        {/* Chart (70%) */}
         <div className="xl:col-span-7">
-          <div className="glass-panel-heavy p-6 rounded-xl min-h-[500px] flex flex-col">
+          <div className="card p-6 min-h-[500px] flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-              <div className="flex items-center gap-3">
-                <div className="w-1 h-6 bg-[#00f3ff]" />
-                <h2 className="text-lg font-headline font-bold uppercase tracking-wider">Trend_Analysis</h2>
-              </div>
+              <h2 className="text-sm font-medium text-[#a1a1aa]">Trend Analysis</h2>
               <div className="flex items-center gap-2">{periodNavigation}</div>
             </div>
             <div className="flex-1 min-h-[350px]">
               <TrendChart readings={readings} timeRange={timeRange} timeframe={timeframe} />
             </div>
-            <div className="flex gap-6 mt-6 border-t border-white/5 pt-4 overflow-x-auto">
-              <LegendItem color="bg-[#00f3ff]" label="Temperature (°C)" />
-              <LegendItem color="bg-[#cf5cff]" label="Humidity (%)" />
-              <LegendItem color="bg-[#a4f200]" label="Light (Lux)" />
+            <div className="flex gap-6 mt-6 border-t border-[#1f1f23] pt-4 overflow-x-auto">
+              <LegendItem color="bg-[#818cf8]" label="Temperature (°C)" />
+              <LegendItem color="bg-[#71717a]" label="Humidity (%)" />
+              <LegendItem color="bg-[#52525b]" label="Light (Lux)" />
             </div>
           </div>
         </div>
 
-        {/* Side Panel (30%) */}
         <div className="xl:col-span-3 flex flex-col gap-6">
-          {/* Activity Timeline */}
-          <div className="glass-panel-heavy p-6 rounded-xl min-h-[200px]">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-1 h-6 bg-[#a4f200]" />
-              <h3 className="font-headline text-lg font-bold uppercase tracking-wider">Activity</h3>
-            </div>
+          <div className="card p-6 min-h-[200px]">
+            <h3 className="text-sm font-medium text-[#a1a1aa] mb-6">Activity</h3>
             <ActivityTimeline events={presenceEvents} formatSGTime={formatSGTime} />
           </div>
 
-          {/* System Logs */}
-          <div className="glass-panel-heavy p-6 rounded-xl flex flex-col min-h-[250px]">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-1 h-6 bg-[#cf5cff]" />
-              <h3 className="font-headline text-lg font-bold uppercase tracking-wider">System Logs</h3>
-            </div>
+          <div className="card p-6 flex flex-col min-h-[250px]">
+            <h3 className="text-sm font-medium text-[#a1a1aa] mb-4">System Logs</h3>
             <SystemLogs logs={logs} formatSGTime={formatSGTime} />
           </div>
         </div>
@@ -177,7 +198,7 @@ function LegendItem({ color, label }: { color: string; label: string }) {
   return (
     <div className="flex items-center gap-2 whitespace-nowrap">
       <span className={`w-3 h-1 rounded ${color}`} />
-      <span className="text-[10px] text-white/40 uppercase font-bold tracking-wider">{label}</span>
+      <span className="text-[11px] text-[#6b7280]">{label}</span>
     </div>
   );
 }

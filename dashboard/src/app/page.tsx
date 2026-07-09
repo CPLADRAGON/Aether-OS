@@ -5,7 +5,6 @@ import DatePicker from '@/components/DatePicker';
 import Layout from '@/components/Layout';
 import DashboardView from '@/components/DashboardView';
 import PowerView from '@/components/PowerView';
-import SensorsView from '@/components/SensorsView';
 import { supabase } from '@/lib/supabase';
 
 // Polyfill for crypto.randomUUID (Required for non-secure IP access)
@@ -48,7 +47,7 @@ interface Session {
 }
 
 type Timeframe = 'day' | 'week' | 'month' | 'year';
-type Tab = 'dashboard' | 'sensors' | 'power';
+type Tab = 'dashboard' | 'power';
 
 export default function Dashboard() {
   // State
@@ -216,13 +215,13 @@ export default function Dashboard() {
           temp: latest?.temperature || 0,
           hum: latest?.humidity || 0,
           ldr: latest?.ldr_value || 0,
-          label: 'LATEST_SYNC',
+          label: 'Latest sync',
         }
       : {
           temp: averages.temp,
           hum: averages.hum,
           ldr: averages.ldr,
-          label: `PERIOD_AVG (${timeframe.toUpperCase()})`,
+          label: `Period average (${timeframe})`,
         };
 
   const comfortScore = useMemo(() => {
@@ -280,39 +279,29 @@ export default function Dashboard() {
   const periodLabel = useMemo(() => {
     const start = timeRange.start;
     if (timeframe === 'day') {
-      if (isCurrentPeriod) return 'TODAY';
-      return start
-        .toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', day: 'numeric', year: 'numeric' })
-        .toUpperCase();
+      if (isCurrentPeriod) return 'Today';
+      return start.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', day: 'numeric', year: 'numeric' });
     } else if (timeframe === 'week') {
       const end = timeRange.end;
-      if (isCurrentPeriod) return 'THIS WEEK';
-      return `${start
-        .toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })
-        .toUpperCase()} - ${end
-        .toLocaleDateString('en-SG', { month: 'short', day: 'numeric', year: 'numeric' })
-        .toUpperCase()}`;
+      if (isCurrentPeriod) return 'This week';
+      return `${start.toLocaleDateString('en-SG', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-SG', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     } else if (timeframe === 'month') {
-      if (isCurrentPeriod) return 'THIS MONTH';
-      return start
-        .toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', year: 'numeric' })
-        .toUpperCase();
+      if (isCurrentPeriod) return 'This month';
+      return start.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', month: 'short', year: 'numeric' });
     } else {
-      if (isCurrentPeriod) return 'THIS YEAR';
+      if (isCurrentPeriod) return 'This year';
       return start.toLocaleDateString('en-SG', { timeZone: 'Asia/Singapore', year: 'numeric' });
     }
   }, [timeRange, timeframe, isCurrentPeriod]);
 
   const periodNavigation = (
     <div className="flex items-center gap-2">
-      <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-1">
+      <div className="flex bg-[#16161a] p-1 rounded-lg border border-[#1f1f23] gap-1">
         <button
           onClick={() => shiftPeriod(-1)}
           disabled={!canGoBackward}
-          className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${
-            !canGoBackward
-              ? 'text-white/20 cursor-not-allowed'
-              : 'text-[#00f3ff] hover:bg-[#00f3ff]/10'
+          className={`px-2 py-1 flex items-center rounded transition-colors ${
+            !canGoBackward ? 'text-[#3f3f46] cursor-not-allowed' : 'text-[#a1a1aa] hover:bg-[#1f1f23]'
           }`}
         >
           <span className="material-symbols-outlined text-[16px]">chevron_left</span>
@@ -320,10 +309,10 @@ export default function Dashboard() {
         <div className="relative flex items-center justify-center min-w-[100px] md:min-w-[130px]">
           <button
             onClick={() => setIsDatePickerOpen(!isDatePickerOpen)}
-            className="flex items-center gap-1 hover:text-[#00f3ff] transition-colors"
+            className="flex items-center gap-1 text-[#a1a1aa] hover:text-[#f4f4f5] transition-colors"
           >
             <span className="material-symbols-outlined text-[14px]">calendar_today</span>
-            <span className="text-[10px] text-white/80 tracking-widest font-mono uppercase">{periodLabel}</span>
+            <span className="text-xs">{periodLabel}</span>
           </button>
           {isDatePickerOpen && (
             <DatePicker
@@ -341,27 +330,23 @@ export default function Dashboard() {
         <button
           onClick={() => shiftPeriod(1)}
           disabled={!canGoForward}
-          className={`px-2 py-1 flex items-center rounded transition-all duration-300 ${
-            !canGoForward
-              ? 'text-white/20 cursor-not-allowed'
-              : 'text-[#00f3ff] hover:bg-[#00f3ff]/10'
+          className={`px-2 py-1 flex items-center rounded transition-colors ${
+            !canGoForward ? 'text-[#3f3f46] cursor-not-allowed' : 'text-[#a1a1aa] hover:bg-[#1f1f23]'
           }`}
         >
           <span className="material-symbols-outlined text-[16px]">chevron_right</span>
         </button>
       </div>
-      <div className="flex bg-white/5 p-1 rounded-lg border border-white/10 gap-1">
+      <div className="flex bg-[#16161a] p-1 rounded-lg border border-[#1f1f23] gap-1">
         {(['day', 'week', 'month', 'year'] as Timeframe[]).map((tf) => (
           <button
             key={tf}
             onClick={() => { setTimeframe(tf); setReferenceDate(new Date()); }}
-            className={`px-4 py-1.5 text-[10px] rounded font-bold transition-all duration-300 ${
-              timeframe === tf
-                ? 'bg-[#00f3ff] text-slate-950 shadow-[0_0_15px_rgba(0,243,255,0.4)]'
-                : 'text-white/40 hover:text-white/80 hover:bg-white/5'
+            className={`px-3 py-1 text-xs rounded transition-colors ${
+              timeframe === tf ? 'bg-[#818cf8] text-[#0d0d0f] font-medium' : 'text-[#a1a1aa] hover:bg-[#1f1f23]'
             }`}
           >
-            {tf === 'day' ? 'DAY' : tf === 'week' ? 'WEEK' : tf === 'month' ? 'MONTH' : 'YEAR'}
+            {tf === 'day' ? 'Day' : tf === 'week' ? 'Week' : tf === 'month' ? 'Month' : 'Year'}
           </button>
         ))}
       </div>
@@ -374,19 +359,18 @@ export default function Dashboard() {
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-4">
             <div>
-              <p className="text-[12px] text-[#00f3ff]/70 uppercase tracking-[0.3em]">System Monitoring Unit</p>
+              <p className="text-xs text-[#6b7280]">System monitoring</p>
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl md:text-3xl font-headline font-semibold text-white uppercase tracking-tight">
-                  Environmental_OVR
-                </h1>
-                <div className="px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[10px] text-white/40 font-mono">
-                  SYNC: {lastUpdateStr}
+                <h1 className="text-2xl font-semibold text-[#f4f4f5]">Environmental Overview</h1>
+                <div className="px-2 py-0.5 bg-[#16161a] border border-[#1f1f23] rounded text-[11px] text-[#6b7280] font-mono">
+                  Sync {lastUpdateStr}
                 </div>
               </div>
             </div>
           </div>
           <DashboardView
             readings={readings}
+            latest={latest}
             logs={logs}
             timeframe={timeframe}
             timeRange={timeRange}
@@ -398,10 +382,6 @@ export default function Dashboard() {
             periodNavigation={periodNavigation}
           />
         </div>
-      )}
-
-      {activeTab === 'sensors' && (
-        <SensorsView readings={readings} latest={latest} formatSGTime={formatSGTime} />
       )}
 
       {activeTab === 'power' && (
