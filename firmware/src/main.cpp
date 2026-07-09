@@ -2032,8 +2032,6 @@ void showRoomPage() {
   const char *humTag = (hInt < ROOM_HUM_DRY_MAX)      ? "DRY"
                       : (hInt < ROOM_HUM_NORMAL_MAX)   ? "NORMAL"
                                                         : "HUMID";
-  char comfortTag[16];
-  snprintf(comfortTag, sizeof(comfortTag), "%s+%s", tempTag, humTag);
 
   // NOTE: this LDR's voltage-divider wiring reads LOW when the room is
   // bright and HIGH when dark (verified on hardware) — the opposite of the
@@ -2042,8 +2040,26 @@ void showRoomPage() {
                         : (ldrRaw < ROOM_LDR_DARK_MIN)     ? "DIM"
                                                              : "DARK";
 
-  drawRoomStatus(t, hInt, ldrRaw, comfortTag, lightTag);
-  waitWithButtonPoll(5000);
+  // Toggle loop: short tap switches between the main view and the Status
+  // subpage; long press or timeout exits to the menu. Exactly two views,
+  // no deeper navigation stack.
+  bool showingDetail = false;
+  while (true) {
+    if (showingDetail) {
+      drawRoomStatusDetail(tInt, tempTag, hInt, humTag, ldrRaw, lightTag);
+    } else {
+      drawRoomStatus(t, hInt, ldrRaw, lightTag);
+    }
+
+    bool longPress = false;
+    if (!waitRoomInteraction(5000, &longPress)) {
+      return; // timeout -> back to menu
+    }
+    if (longPress) {
+      return; // long press -> back to menu
+    }
+    showingDetail = !showingDetail; // short tap -> toggle view
+  }
 }
 
 enum TrendView { TREND_TEMP, TREND_HUM, TREND_LIGHT };
