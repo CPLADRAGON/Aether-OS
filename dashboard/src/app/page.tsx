@@ -195,11 +195,14 @@ export default function Dashboard() {
 
   const averages = useMemo(() => {
     if (readings.length === 0) return { temp: 0, hum: 0, lux: 0 };
+    // lux_value can be null/undefined on rows written before the lux_value
+    // column migration (or before firmware upgrade) -- guard with `|| 0` so
+    // a handful of pre-migration rows don't NaN-poison the whole average.
     const sum = readings.reduce(
       (acc, r) => ({
         temp: acc.temp + r.temperature,
         hum: acc.hum + r.humidity,
-        lux: acc.lux + r.lux_value,
+        lux: acc.lux + (r.lux_value || 0),
       }),
       { temp: 0, hum: 0, lux: 0 }
     );

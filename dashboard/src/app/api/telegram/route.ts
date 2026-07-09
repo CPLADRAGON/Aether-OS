@@ -84,7 +84,13 @@ export async function POST(req: NextRequest) {
         console.error('[Telegram Webhook] Supabase Error:', error);
         responseText = "⚠️ Error fetching latest reading from database.";
       } else if (data) {
-        responseText = `📊 *LATEST STATUS*\n\n🌡 *Temp:* ${data.temperature.toFixed(1)}°C\n💧 *Hum:* ${data.humidity.toFixed(1)}%\n💡 *Light:* ${data.lux_value.toFixed(0)} lx (${lightLevelTag(data.lux_value)})\n🔋 *Battery:* ${data.battery_v.toFixed(2)}V\n🕒 *Time:* ${new Date(data.created_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}`;
+        // lux_value can be null/undefined on rows written before the
+        // lux_value column migration (or before firmware upgrade) --
+        // fall back to the always-present raw ldr_value rather than throw.
+        const lightLine = data.lux_value != null
+          ? `${data.lux_value.toFixed(0)} lx (${lightLevelTag(data.lux_value)})`
+          : `${data.ldr_value} (raw, pre-migration)`;
+        responseText = `📊 *LATEST STATUS*\n\n🌡 *Temp:* ${data.temperature.toFixed(1)}°C\n💧 *Hum:* ${data.humidity.toFixed(1)}%\n💡 *Light:* ${lightLine}\n🔋 *Battery:* ${data.battery_v.toFixed(2)}V\n🕒 *Time:* ${new Date(data.created_at).toLocaleString('en-SG', { timeZone: 'Asia/Singapore' })}`;
       }
     } else if (text.startsWith('/stats')) {
       const { data: sessions, error: sErr } = await supabase.from('device_sessions').select('duration');

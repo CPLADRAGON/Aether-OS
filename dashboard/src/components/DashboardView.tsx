@@ -73,7 +73,7 @@ export default function DashboardView({
     const avg = (arr: number[]) => arr.reduce((a, b) => a + b, 0) / arr.length;
     const temps = readings.map((r) => r.temperature);
     const hums = readings.map((r) => r.humidity);
-    const luxs = readings.map((r) => r.lux_value);
+    const luxs = readings.map((r) => r.lux_value || 0); // guard pre-migration rows (null)
     const accels = readings.map((r) => r.accel_total);
     return {
       temp: { min: Math.min(...temps), max: Math.max(...temps), avg: avg(temps) },

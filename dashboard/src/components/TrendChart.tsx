@@ -47,7 +47,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
 
     const temps = smooth(readings.map((r) => r.temperature));
     const hums = smooth(readings.map((r) => r.humidity));
-    const luxs = smooth(readings.map((r) => r.lux_value));
+    const luxs = smooth(readings.map((r) => r.lux_value || 0)); // guard pre-migration rows (null)
 
     // Dark-period shading intentionally uses raw ldr_value (NOT lux_value):
     // this is an internal display heuristic already tuned against raw ADC
