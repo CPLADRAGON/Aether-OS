@@ -489,7 +489,19 @@ bool waitRoomInteraction(unsigned long ms, bool *longPress) {
   buttonEvent = false;
   unsigned long start = millis();
   while (millis() - start < ms) {
-    if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
+    // !longPressTriggered guards against misreading the tail of the very
+    // same long press that was used to SELECT this page from the menu: that
+    // press is still physically held (isPressing == true) with an
+    // isrPressStart that already exceeds LONG_PRESS_MS by the time this loop
+    // is first reached, so without this guard the page would instantly
+    // read it as a brand-new long-press-to-exit and bounce straight back to
+    // the menu before the user ever sees/can toggle the screen. The menu's
+    // own long-press handler already set longPressTriggered = true for that
+    // press; it only resets to false on the next physical press-down (see
+    // handleButtonInterrupt()). Matches the same guard used by
+    // showTrendPage() and the menu selection loop.
+    if (isPressing && !longPressTriggered && (millis() - isrPressStart > LONG_PRESS_MS)) {
+      longPressTriggered = true;
       *longPress = true;
       lastInteractionTime = millis();
       return true;
@@ -1548,13 +1560,33 @@ static void drawClockScreen(const char *hh, const char *mm, const char *ss,
   // every other screen follows) -- day/date now live in the info strip at
   // the bottom instead, freeing the full 48px height for the huge time.
 
+  // Big HH:MM layout is computed BEFORE the sun/moon icon is drawn so the
+  // icon can be centred exactly above the colon (see sunMoonCx below). HH,
+  // ":", and MM are drawn as three independent calls at FIXED cumulative
+  // offsets — this guarantees MM's x position never depends on whether the
+  // colon is currently visible. (A previous version swapped ':' for ' ' in a
+  // combined string, but ' ' and ':' have different glyph advance widths in
+  // this numeric font, which shifted MM sideways every time the colon
+  // blinked.)
+  dm::setFont(dm::FONT_HUGE);
+  int hhW = dm::textWidth(hh);
+  int colonW = dm::textWidth(":");
+  int mmW = dm::textWidth(mm);
+  int totalW = hhW + colonW + mmW;
+  int x = OLED_OFFSET_X + (OLED_W - totalW) / 2;
+  if (x < 0) x = 0;
+
+  int secInt = (ss && ss[0] && ss[1]) ? ((ss[0]-'0')*10 + (ss[1]-'0')) : 0;
+
   // Sun/moon icon in its own small reserved row at the very top, drawn
   // procedurally (no bitmap asset needed) with the same circle-primitive
   // technique already used for the sleep animation's crescent moon. Placed
   // in a row ABOVE the time rather than beside it -- sharing a row with the
   // huge time digits risked colliding with the rightmost digit, since this
-  // font runs close to the full 64px width when centred.
-  int sunMoonCx = OLED_OFFSET_X + OLED_W - 7;
+  // font runs close to the full 64px width when centred. Horizontally
+  // centred above the ':' (not the whole screen) so it stays visually
+  // balanced with the time below regardless of how many digits HH/MM have.
+  int sunMoonCx = x + hhW + colonW / 2;
   int sunMoonCy = OLED_OFFSET_Y + 4;
   bool isDaytime = (hour24 >= 6 && hour24 < 18);
   if (isDaytime) {
@@ -1574,22 +1606,6 @@ static void drawClockScreen(const char *hh, const char *mm, const char *ss,
     dm::drawFilledCircle(sunMoonCx, sunMoonCy, 3);
     dm::clearCircle(sunMoonCx + 1, sunMoonCy - 1, 2);
   }
-
-  // Big HH:MM. HH, ":", and MM are drawn as three independent calls at FIXED
-  // cumulative offsets — this guarantees MM's x position never depends on
-  // whether the colon is currently visible. (A previous version swapped ':'
-  // for ' ' in a combined string, but ' ' and ':' have different glyph
-  // advance widths in this numeric font, which shifted MM sideways every
-  // time the colon blinked.)
-  dm::setFont(dm::FONT_HUGE);
-  int hhW = dm::textWidth(hh);
-  int colonW = dm::textWidth(":");
-  int mmW = dm::textWidth(mm);
-  int totalW = hhW + colonW + mmW;
-  int x = OLED_OFFSET_X + (OLED_W - totalW) / 2;
-  if (x < 0) x = 0;
-
-  int secInt = (ss && ss[0] && ss[1]) ? ((ss[0]-'0')*10 + (ss[1]-'0')) : 0;
 
   dm::drawText(x, OLED_OFFSET_Y + 8, hh);
   if (!(secInt & 1)) {
