@@ -397,7 +397,21 @@ bool oledFound = false;
 // runMeasurementFlow which come before their definitions).
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmyy, const char *day);
-static void drawWeatherScreen(float tempC, int humPct, const char *desc);
+static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
+
+// Maps OpenWeatherMap's weather[0].main field to an icon. That field is
+// always one of a fixed set of capitalized-mixed-case strings (see
+// https://openweathermap.org/weather-conditions): Thunderstorm, Drizzle,
+// Rain, Snow, Clear, Clouds, Mist, Smoke, Haze, Dust, Fog, Sand, Ash,
+// Squall, Tornado. Anything not explicitly mapped below falls back to the
+// existing generic cloud icon.
+static dm::Icon resolveWeatherIcon(const String &main) {
+  if (main == "Clear") return dm::ICON_WEATHER_SUN_LG;
+  if (main == "Rain" || main == "Drizzle") return dm::ICON_WEATHER_RAIN_LG;
+  if (main == "Thunderstorm") return dm::ICON_WEATHER_STORM_LG;
+  if (main == "Snow") return dm::ICON_WEATHER_SNOW_LG;
+  return dm::ICON_WEATHER_LG; // Clouds, Mist, Haze, Fog, etc.
+}
 static void drawStatsScreen(uint32_t measures, uint32_t boots, uint32_t uptimeMin);
 static void drawLocateResult(const char *city);
 static void drawMeasureSample(int sampleIdx, int totalSamples,
@@ -1271,9 +1285,8 @@ void showWeatherPage() {
       deserializeJson(doc, http.getString());
       float temp = doc["main"]["temp"].as<float>();
       int hum = doc["main"]["humidity"].as<int>();
-      String desc = doc["weather"][0]["main"].as<String>();
-      desc.toUpperCase();
-      drawWeatherScreen(temp, hum, desc.c_str());
+      String main = doc["weather"][0]["main"].as<String>();
+      drawWeatherScreen(temp, hum, resolveWeatherIcon(main));
     } else {
       char buf[12]; snprintf(buf, sizeof(buf), "HTTP %d", code);
       drawErrorScreen("WEATHER", buf, "API FAILED");
@@ -1283,7 +1296,7 @@ void showWeatherPage() {
     drawErrorScreen("WEATHER", "BEGIN", "HTTP INIT");
   }
 #else
-  drawWeatherScreen(30.5f, 68, "SUNNY");
+  drawWeatherScreen(30.5f, 68, dm::ICON_WEATHER_SUN_LG);
 #endif
   // IMPORTANT: reset state BEFORE the display wait, otherwise uiTask keeps
   // rendering the SS_SYNCING spinner over drawMenu() and the button handler
