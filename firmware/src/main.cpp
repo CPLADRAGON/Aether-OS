@@ -1,7 +1,6 @@
 #include "secrets.h"
-#include <Adafruit_GFX.h>
+#include "display_manager.h"
 #include <Adafruit_MPU6050.h>
-#include <Adafruit_SSD1306.h>
 #include <Adafruit_Sensor.h>
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -49,7 +48,8 @@ enum SystemState {
 };
 volatile SystemState currentState = SS_MENU;
 String uiLine1 = "", uiLine2 = "", uiLine3 = "";
-const uint8_t *uiIcon = NULL;
+dm::Icon uiIcon = dm::ICON_WIFI;
+bool uiHasIcon = false;
 
 // --- Binary Structs (NVS Optimization) ---
 struct __attribute__((packed)) WiFiSnapshot {
@@ -226,23 +226,19 @@ void migrateNVS() {
 #define BLUE_PIN 27
 #define OLED_RST 16
 
-// --- OLED Config (64x48 visible window) ---
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
+// --- OLED Config (native 64x48 panel via U8g2 ER constructor) ---
+#define SCREEN_WIDTH 64
+#define SCREEN_HEIGHT 48
 #define OLED_W 64
 #define OLED_H 48
-#define OLED_OFFSET_X 32
-#define OLED_OFFSET_Y 16
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-const unsigned char icon_wifi[] PROGMEM = {0x3C, 0x7E, 0xC3, 0x00,
-                                           0x3C, 0x42, 0x00, 0x18};
-const unsigned char icon_cloud[] PROGMEM = {0x18, 0x3C, 0x7E, 0xDB,
-                                            0xFF, 0x24, 0x24, 0x24}; // Syncing
-const unsigned char icon_pin[] PROGMEM = {0x18, 0x3C, 0x3C, 0x18,
-                                          0x18, 0x18, 0x00, 0x00}; // Location
-const unsigned char icon_scan[] PROGMEM = {0xFF, 0x81, 0xBD, 0xA5, 0xA5,
-                                           0xBD, 0x81, 0xFF}; // Sensor Scan
+#define OLED_OFFSET_X 0
+#define OLED_OFFSET_Y 0
+// Backwards-compat: legacy call sites reference these as "icons". Kept as
+// dm::Icon aliases so the existing updateOLED(..., icon) signature works.
+static const dm::Icon icon_wifi  = dm::ICON_WIFI;
+static const dm::Icon icon_cloud = dm::ICON_CLOUD;
+static const dm::Icon icon_pin   = dm::ICON_PIN;
+static const dm::Icon icon_scan  = dm::ICON_SCAN;
 
 // --- Menu Configuration ---
 enum MenuPage {
@@ -314,6 +310,29 @@ Adafruit_MPU6050 mpu;
 bool mpuFound = false;
 bool oledFound = false;
 
+// Forward declarations for the redesigned page renderers (defined near
+// showStatsPage(); referenced by runLocatePage/showTimePage/showWeatherPage/
+// runMeasurementFlow which come before their definitions).
+static void drawClockScreen(const char *hhmm, const char *ss,
+                            const char *ddmmyy, const char *day);
+static void drawWeatherScreen(float tempC, int humPct, const char *desc);
+static void drawStatsScreen(uint32_t measures, uint32_t boots, uint32_t uptimeMin);
+static void drawLocateResult(const char *city);
+static void drawMeasureSample(int sampleIdx, int totalSamples,
+                              float tempC, int humPct, int ldr);
+static void drawMeasureGlitch(int sampleIdx, int totalSamples);
+// Redesign pass 2 — replaces the last of the generic updateOLED screens.
+static void drawErrorScreen(const char *title, const char *code, const char *hint);
+static void drawLockedScreen(dm::Icon featureIcon, const char *featureName);
+static void drawWifiConnecting(const char *ssid, int elapsedMs);
+// Bespoke success/confirmation screen used where dm::toast() can't render
+// (blocking subpages hold g_menuOwnedByPage=true, suppressing uiTask overlay).
+static void drawConfirmScreen(const char *title, const char *big, const char *hint);
+// Confirmation prompt with a "hold to confirm" action; returns true if the
+// user long-pressed within timeoutMs.
+static bool drawConfirmPromptAndWait(const char *title, const char *body,
+                                     const char *hint, uint32_t timeoutMs);
+
 void setLED(int r, int g, int b) {
   if (!config.ledEnabled && (r > 0 || g > 0 || b > 0)) {
     // Only allow brief flash if disabled, or just keep off
@@ -359,114 +378,214 @@ bool waitWithButtonPoll(unsigned long ms) {
   return false;
 }
 
-void drawPulsingPower(int frame) {
-  int cx = OLED_OFFSET_X + 32;
-  int cy = OLED_OFFSET_Y + 28;
-  float pulse = (sin(frame * 0.2) + 1.0) / 2.0; // 0.0 to 1.0
-  int r = 8 + (int)(pulse * 4);
+// --- Menu scroll tween state (Phase 1) ---
+// menuTween interpolates between the previous and next currentMenuIndex when a
+// button press advances the menu. drawMenuAnimated() consumes the tween value.
+static dm::Tween menuTween;
+static float menuScrollPos = 0.f;   // last committed fractional index
+static dm::Tween wifiMenuTween;
+static float wifiMenuScrollPos = 0.f;
 
-  display.drawCircle(cx, cy, r, SSD1306_WHITE);
-  display.fillRect(cx - 3, cy - r - 2, 7, 5, SSD1306_BLACK);   // Gap
-  display.drawLine(cx, cy - r + 1, cx, cy - 2, SSD1306_WHITE); // Stem
+// Shortest-signed delta for circular scroll (e.g., 9 -> 0 in a 10-item ring
+// scrolls +1 forward instead of -9 backward).
+static float shortestSignedDelta(int from, int to, int ringSize) {
+  int d = ((to - from) % ringSize + ringSize) % ringSize;
+  if (d > ringSize / 2) d -= ringSize;
+  return (float)d;
+}
+
+// Page-transition state — see runSlideTransition() in Phase 2 wiring.
+static uint8_t g_slideBuf[384];  // 64x48 SSD1306 framebuffer size (6 pages * 64)
+static bool    g_slideBufValid = false;
+
+// Icon strip mirroring menuItems / wifiMenuItems for cover-flow rendering.
+static const dm::Icon menuIcons[] = {
+    dm::ICON_MEASURE_LG, dm::ICON_TIME_LG, dm::ICON_WEATHER_LG, dm::ICON_LOCATE_LG,
+    dm::ICON_LED_LG, dm::ICON_INTERVAL_LG, dm::ICON_STATS_LG, dm::ICON_WIFIMENU_LG,
+    dm::ICON_RESET_LG, dm::ICON_SLEEP_LG
+};
+static const dm::Icon wifiMenuIcons[] = {
+    dm::ICON_PORTAL_LG, dm::ICON_SELECT_LG, dm::ICON_CLEAR_LG, dm::ICON_BACK_LG
+};
+
+// Set true by monitorTask right before a menu action; uiTask uses this to
+// suppress menu rendering while pages take over.
+static volatile bool g_menuOwnedByPage = false;
+
+void drawPulsingPower(int frame) {
+  int cx = OLED_OFFSET_X + OLED_W / 2;
+  int cy = OLED_OFFSET_Y + 26;
+  float pulse = (sin(frame * 0.2) + 1.0) / 2.0;
+  int r = 7 + (int)(pulse * 3);
+  dm::drawCircle(cx, cy, r);
+  dm::clearRect(cx - 3, cy - r - 2, 7, 5);
+  dm::drawLine(cx, cy - r + 1, cx, cy - 2);
+}
+
+// Renders the main menu using the icon cover-flow layout with the current
+// tweened scroll position.
+static void renderMainMenu(float fractionalIdx) {
+  // Header with WiFi indicator on the right.
+  bool wifiUp = (WiFi.status() == WL_CONNECTED);
+  String headStr;
+  if (locationSynced)
+    headStr = String(locCity).substring(0, 6);
+  else
+    headStr = "AETHER";
+  headStr.toUpperCase();
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W,
+                 headStr.c_str(), wifiUp, dm::ICON_WIFI);
+  if (!wifiUp) {
+    dm::setFont(dm::FONT_SMALL);
+    dm::drawTextInverted(OLED_OFFSET_X + OLED_W - 6, OLED_OFFSET_Y + 2, "x");
+  }
+
+  // Cover-flow: shows current icon centred with prev/next visible at edges.
+  dm::drawIconMenu(menuItems, menuIcons, TOTAL_MENU_ITEMS, fractionalIdx);
+
+  // Auto-sleep countdown bar at very bottom
+  unsigned long elapsed = millis() - lastInteractionTime;
+  if (elapsed < MENU_TIMEOUT) {
+    int barWidth = map(elapsed, 0, MENU_TIMEOUT, OLED_W - 4, 0);
+    dm::drawFilledRect(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 2,
+                       barWidth, 1);
+  }
+}
+
+static void renderWifiMenu(float fractionalIdx) {
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W,
+                 "WIFI CFG", false, dm::ICON_WIFI);
+  dm::drawIconMenu(wifiMenuItems, wifiMenuIcons, TOTAL_WIFI_MENU_ITEMS, fractionalIdx);
 }
 
 void uiTask(void *pvParameters) {
-  int frame = 0;
+  static dm::Animation spinnerAnim(150);
+  static dm::Animation portalDotAnim(400);
   const char *loader = "/|-\\";
+  char spinnerBuf[2] = {0, 0};
   while (1) {
-    if (currentState == SS_CONNECTING || currentState == SS_SYNCING ||
-        currentState == SS_LOCATING || currentState == SS_SCANNING ||
-        currentState == SS_PORTAL) {
-      if (xSemaphoreTake(displayMutex, pdMS_TO_TICKS(50))) {
-        display.clearDisplay();
-        // Header
-        display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10,
-                         SSD1306_WHITE);
-        display.setTextColor(SSD1306_BLACK);
-        display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 1);
+    bool spinnerAdvanced = spinnerAnim.tick();
+    bool portalAdvanced = portalDotAnim.tick();
+    bool anyAnim = spinnerAdvanced || portalAdvanced;
 
-        String head = "WAITING";
-        if (currentState == SS_CONNECTING)
-          head = "WIFI...";
-        else if (currentState == SS_SYNCING)
-          head = "CLOUD";
-        else if (currentState == SS_LOCATING)
-          head = "GEO-IP";
-        else if (currentState == SS_SCANNING)
-          head = "SCANNING";
-        else if (currentState == SS_PORTAL)
-          head = "PORTAL";
-        display.print(head);
+    // Menu rendering is suppressed while a subpage owns the framebuffer
+    // (STATS / CLOCK / WEATHER / LOCATE result / SAVED-WIFI viewer). Other
+    // state-driven screens (SS_PORTAL, SS_CONNECTING, SS_SYNCING, ...) MUST
+    // still render — those pages rely on uiTask to paint them.
+    bool renderMenu = (currentState == SS_MENU || currentState == SS_WIFI_MENU)
+                      && !g_menuOwnedByPage;
+
+    if (renderMenu) {
+      dm::Tween &tw = (currentState == SS_MENU) ? menuTween : wifiMenuTween;
+      float &scroll = (currentState == SS_MENU) ? menuScrollPos : wifiMenuScrollPos;
+      if (tw.active()) {
+        scroll = tw.value();
+        anyAnim = true;
+      }
+
+      if (dm::beginFrame(50)) {
+        dm::markDirty();
+        if (currentState == SS_MENU) {
+          renderMainMenu(scroll);
+        } else {
+          renderWifiMenu(scroll);
+        }
+        dm::toastTick();
+        dm::endFrame();
+      }
+    } else if (currentState == SS_CONNECTING || currentState == SS_SYNCING ||
+               currentState == SS_LOCATING || currentState == SS_SCANNING ||
+               currentState == SS_PORTAL) {
+      if (dm::beginFrame(50)) {
+        // Every progress state animates at ~60fps.
+        anyAnim = true;
+        dm::markDirty();
+
+        // Header title per state.
+        const char *head = "WAITING";
+        if (currentState == SS_CONNECTING) head = "LINKING";
+        else if (currentState == SS_SYNCING) head = "SYNCING";
+        else if (currentState == SS_LOCATING) head = "GEO-IP";
+        else if (currentState == SS_SCANNING) head = "SCANNING";
+        else if (currentState == SS_PORTAL) head = "PORTAL";
+        dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, head, false, dm::ICON_WIFI);
+
+        uint32_t nowMs = millis();
+        int cx = OLED_OFFSET_X + 14;
+        int cy = OLED_OFFSET_Y + 26;
 
         if (currentState == SS_PORTAL) {
-          display.setTextColor(SSD1306_WHITE);
-          display.setCursor(OLED_OFFSET_X + 0,
-                            OLED_OFFSET_Y + 14); // Shifted for zero-clipping
-          display.print("CONNECT TO:");
-          display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 26);
-          display.print("AETHER_CFG");
-          display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 38);
-          display.print("192.168.4.1");
-        } else if (currentState == SS_WIFI_MENU) {
-          // WiFi Sub-Menu Rendering
-          display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10,
-                           SSD1306_WHITE);
-          display.setTextColor(SSD1306_BLACK);
-          display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 1);
-          display.print("WIFI CONFIG");
-
-          display.setTextColor(SSD1306_WHITE);
-          for (int i = 0; i < TOTAL_WIFI_MENU_ITEMS; i++) {
-            if (i == currentWiFiMenuIndex) {
-              display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y + 14 + (i * 10),
-                               OLED_W, 10, SSD1306_WHITE);
-              display.setTextColor(SSD1306_BLACK);
-            } else {
-              display.setTextColor(SSD1306_WHITE);
-            }
-            display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 15 + (i * 10));
-            display.print(wifiMenuItems[i]);
+          // Portal: giant SSID label + IP + animated dots (unchanged design).
+          // Portal splash — everything must fit within y=0..47 (48px panel).
+          dm::setFont(dm::FONT_SMALL);
+          dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 13, "JOIN AP:");
+          dm::setFont(dm::FONT_LARGE);
+          dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 22, "AETHER");
+          dm::setFont(dm::FONT_SMALL);
+          // IP at bottom row — full width; no other content on this row.
+          dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 40, "192.168.4.1");
+          // Animated dots moved to y=34 (above IP line, below SSID text)
+          // so they never overlap the IP.
+          int dcx = OLED_OFFSET_X + OLED_W - 12;
+          int dcy = OLED_OFFSET_Y + 34;
+          int phase = (portalDotAnim.frame) % 3;
+          for (int i2 = 0; i2 < 3; i2++) {
+            int on = (phase + i2) % 3;
+            if (on == 0) dm::drawFilledCircle(dcx + i2 * 3, dcy, 1);
+            else         dm::drawPixel(dcx + i2 * 3, dcy);
           }
-        } else {
-          // Progress Layout with Spinner
-          display.setTextColor(SSD1306_WHITE);
-          display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 14);
-
-          String head = "WAITING";
-          if (currentState == SS_CONNECTING)
-            head = "WIFI...";
-          else if (currentState == SS_SYNCING)
-            head = "CLOUD";
-          else if (currentState == SS_LOCATING)
-            head = "GEO-IP";
-          else if (currentState == SS_SCANNING)
-            head = "SCANNING";
-          else if (currentState == SS_PORTAL)
-            head = "PORTAL";
-
-          display.print((uiLine1 == "") ? head : uiLine1);
-
-          display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 28);
-          display.print(uiLine2);
-
-          // Mechanical Spinner (Size 2, Bottom Right)
-          display.setTextSize(2);
-          display.setCursor(OLED_OFFSET_X + 46, OLED_OFFSET_Y + 30);
-          display.print(loader[frame % 4]);
-          display.setTextSize(1);
-
-          if (uiLine3 != "") {
-            display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 40);
-            display.print(uiLine3);
+        } else if (currentState == SS_CONNECTING) {
+          // Expanding wifi arcs pulsing outward from a centre dot.
+          dm::drawFilledCircle(cx, cy, 2);
+          int phase = (nowMs / 120) % 12;
+          for (int i2 = 0; i2 < 3; i2++) {
+            int r = ((phase + i2 * 4) % 12) + 3;
+            if (r >= 4 && r <= 12) dm::drawCircle(cx, cy, r);
           }
+          dm::setFont(dm::FONT_NORMAL);
+          dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, uiLine1.c_str());
+          dm::setFont(dm::FONT_SMALL);
+          dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "[TAP] CANCEL");
+        } else if (currentState == SS_SYNCING) {
+          // Cloud icon (12x12) + orbiting dot to indicate upload.
+          dm::drawIcon(cx - 6, cy - 6, dm::ICON_CLOUD);
+          float ang = (float)(nowMs) * 0.006f;
+          int ox = cx + (int)(cosf(ang) * 10);
+          int oy = cy + (int)(sinf(ang) * 10);
+          dm::drawFilledCircle(ox, oy, 1);
+          dm::setFont(dm::FONT_NORMAL);
+          String l1 = (uiLine1 == "") ? String("CLOUD") : uiLine1;
+          dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, l1.c_str());
+          if (uiLine2 != "") {
+            dm::setFont(dm::FONT_SMALL);
+            dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 32, uiLine2.c_str());
+          }
+        } else if (currentState == SS_LOCATING) {
+          // Pin icon dropping (bounces on Y axis)
+          float t = (float)(nowMs % 900) / 900.f;
+          int drop = (int)(sinf(t * 3.14159f) * 4);
+          dm::drawIcon(cx - 6, cy - 6 - drop, dm::ICON_PIN);
+          dm::drawHLine(cx - 8, cy + 8, 16);   // ground line
+          dm::setFont(dm::FONT_NORMAL);
+          dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, "GEO-IP");
+          dm::setFont(dm::FONT_SMALL);
+          dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "IP-API.COM");
+        } else if (currentState == SS_SCANNING) {
+          // WiFi scan radar sweep.
+          dm::drawCircle(cx, cy, 10);
+          float ang = (float)(nowMs) * 0.008f;
+          int ex = cx + (int)(cosf(ang) * 10);
+          int ey = cy + (int)(sinf(ang) * 10);
+          dm::drawLine(cx, cy, ex, ey);
+          dm::setFont(dm::FONT_NORMAL);
+          dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, "SCAN");
         }
-
-        display.display();
-        xSemaphoreGive(displayMutex);
-        frame++;
+        dm::toastTick();
+        dm::endFrame();
       }
     }
-    vTaskDelay(150 / portTICK_PERIOD_MS);
+    // Adaptive frame budget: 16ms during animations, 50ms idle.
+    vTaskDelay((anyAnim ? 16 : 50) / portTICK_PERIOD_MS);
   }
 }
 
@@ -492,38 +611,19 @@ void sendLog(String msg, String level = "INFO") {
 }
 
 void updateOLED(String header, String line1, String line2, String line3 = "",
-                const uint8_t *icon = NULL) {
+                dm::Icon icon = dm::ICON_WIFI, bool showIcon = false) {
   if (!oledFound)
     return;
   uiLine1 = line1;
   uiLine2 = line2;
   uiLine3 = line3;
   uiIcon = icon;
+  uiHasIcon = showIcon;
 
-  if (xSemaphoreTake(displayMutex, portMAX_DELAY)) {
-    display.clearDisplay();
-    display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10, SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK);
-    display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 1);
-    display.print(header);
-
-    if (icon != NULL) {
-      display.drawBitmap(OLED_OFFSET_X + OLED_W - 10, OLED_OFFSET_Y + 1, icon,
-                         8, 8, SSD1306_BLACK);
-    }
-
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 14);
-    display.print(line1);
-    display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 24);
-    display.print(line2);
-    if (line3 != "") {
-      display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 34);
-      display.print(line3);
-    }
-    display.display();
-    xSemaphoreGive(displayMutex);
-  }
+  dm::showStatus(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W,
+                 header.c_str(), line1.c_str(), line2.c_str(),
+                 line3.length() ? line3.c_str() : nullptr,
+                 showIcon, icon);
 }
 
 bool validateIPReady() {
@@ -549,18 +649,9 @@ int tryConnect(const char *ssid, const char *pass) {
   if (sStr.length() == 0)
     return 4;
 
-  if (xSemaphoreTake(displayMutex, pdMS_TO_TICKS(100))) {
-    display.clearDisplay();
-    display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10, SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK);
-    display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 1);
-    display.print("CONNECTING");
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 14);
-    display.print(sStr.substring(0, 9));
-    display.display();
-    xSemaphoreGive(displayMutex);
-  }
+  // currentState is SS_CONNECTING here (set by ensureWiFi); uiTask draws the
+  // expanding-arc wifi connecting splash based on that state.
+  uiLine1 = sStr.substring(0, 9);
 
   WiFi.disconnect();
   vTaskDelay(200 / portTICK_PERIOD_MS);
@@ -586,7 +677,7 @@ int tryConnect(const char *ssid, const char *pass) {
   WiFi.setTxPower(WIFI_POWER_19_5dBm);
 
   Serial.printf("[WIFI] Target: %s\n", sStr.c_str());
-  uiLine2 = sStr.substring(0, 10); // Show on OLED via uiTask spinner
+  uiLine2 = sStr.substring(0, 10);
 
   for (int i = 0; i < 100; i++) {
     if (buttonEvent) {
@@ -679,13 +770,11 @@ bool ensureWiFi(bool force = false) {
   // Handle Errors Verbously
   currentState = SS_MENU;
   if (res != 0 && res != 1) {
-    String err = "TIMEOUT";
-    if (res == 2)
-      err = "NO SIGNAL";
-    if (res == 3)
-      err = "AUTH FAIL";
-    updateOLED("WIFI", "FAILED", err, "TRY AGAIN");
-    vTaskDelay(2000 / portTICK_PERIOD_MS);
+    const char *err = "TIMEOUT";
+    if (res == 2) err = "NO SSID";
+    if (res == 3) err = "AUTH";
+    drawErrorScreen("WIFI", err, "TAP TO RETRY");
+    vTaskDelay(1600 / portTICK_PERIOD_MS);
   }
   return false;
 }
@@ -853,33 +942,43 @@ void showSavedWiFi() {
     }
     preferences.end();
 
-    if (xSemaphoreTake(displayMutex, pdMS_TO_TICKS(100))) {
-      display.clearDisplay();
-      display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10, SSD1306_WHITE);
-      display.setTextColor(SSD1306_BLACK);
-      display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 1);
+    if (dm::beginFrame(100)) {
+      // Slot viewer redesign: big slot number, primary indicator, SSID prominent.
+      char headBuf[16];
+      snprintf(headBuf, sizeof(headBuf), "SLOT %d%s",
+               currentSlot, (currentSlot == primSlot) ? " *" : "");
+      dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, headBuf, false, dm::ICON_WIFI);
 
-      String head = "SLOT " + String(currentSlot);
-      if (currentSlot == primSlot)
-        head += " [*]";
-      display.print(head);
-
-      display.setTextColor(SSD1306_WHITE);
       if (viewMode == 0) {
-        display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 14);
-        display.print("SSID:");
-        display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 24);
-        display.print(s.substring(0, 9));
-        display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 38);
-        display.print("[HOLD] SET");
+        // SSID view: big text
+        dm::setFont(dm::FONT_SMALL);
+        dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 13, "SSID");
+        dm::setFont(dm::FONT_LARGE);
+        dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 20, s.substring(0, 6).c_str());
+        // Slot progress dots at the right edge showing position 1..5
+        for (int slot = 1; slot <= 5; slot++) {
+          int dx = OLED_OFFSET_X + OLED_W - 8 + (slot - 1) * 0;  // stacked
+          int dy = OLED_OFFSET_Y + 13 + (slot - 1) * 4;
+          if (slot == currentSlot) dm::drawFilledCircle(dx, dy, 1);
+          else                     dm::drawPixel(dx, dy);
+        }
+        dm::setFont(dm::FONT_SMALL);
+        dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "[HOLD] PRIMARY");
       } else {
-        display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 14);
-        display.print("P:" + p.substring(0, 9));
-        display.setCursor(OLED_OFFSET_X + 0, OLED_OFFSET_Y + 38);
-        display.print("[CLICK] BK");
+        // Password view: shown as bullet dots (privacy)
+        dm::setFont(dm::FONT_SMALL);
+        dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 13, "PASSWORD");
+        int dotCount = p.length();
+        if (dotCount > 10) dotCount = 10;
+        int dx = OLED_OFFSET_X + 2;
+        int dy = OLED_OFFSET_Y + 26;
+        for (int i = 0; i < dotCount; i++) {
+          dm::drawFilledCircle(dx + i * 5, dy, 1);
+        }
+        dm::setFont(dm::FONT_SMALL);
+        dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "[TAP] BACK");
       }
-      display.display();
-      xSemaphoreGive(displayMutex);
+      dm::endFrame();
     }
 
     if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
@@ -890,8 +989,11 @@ void showSavedWiFi() {
         preferences.putInt("primSlot", currentSlot);
         preferences.end();
         primSlot = currentSlot; // Update indicator
-        updateOLED("WIFI", "PRIMARY", "SET TO", "SLOT " + String(currentSlot));
-        vTaskDelay(1200 / portTICK_PERIOD_MS);
+        // Explicit confirmation screen (dm::toast can't overlay here).
+        char confBuf[16];
+        snprintf(confBuf, sizeof(confBuf), "SLOT %d", currentSlot);
+        drawConfirmScreen("WIFI", confBuf, "SET AS PRIMARY");
+        vTaskDelay(1400 / portTICK_PERIOD_MS);
         break;
       }
     }
@@ -912,17 +1014,27 @@ void showSavedWiFi() {
 }
 
 void deleteSavedWiFi() {
+  bool confirmed = drawConfirmPromptAndWait(
+      "CLEAR WIFI", "ALL 5 SLOTS?",
+      "HOLD=OK  TAP=NO", 6000);
+  if (!confirmed) {
+    drawConfirmScreen("WIFI", "KEPT", "CANCELLED");
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    return;
+  }
   preferences.begin("aether_wifi", false);
   preferences.clear();
   preferences.end();
-  updateOLED("WIFI", "CREDENTIALS", "CLEARED", "REBOOTING...");
-  vTaskDelay(2000 / portTICK_PERIOD_MS);
+  drawConfirmScreen("WIFI", "CLEARED", "REBOOTING...");
+  vTaskDelay(1500 / portTICK_PERIOD_MS);
   ESP.restart();
 }
 
 void runLocatePage() {
-  if (!ensureWiFi())
+  if (!ensureWiFi()) {
+    currentState = SS_MENU;
     return;
+  }
   currentState = SS_LOCATING;
   uiLine1 = "FETCHING IP...";
 
@@ -931,6 +1043,8 @@ void runLocatePage() {
   String url = "http://ip-api.com/json/?fields=status,city,lat,lon,offset";
   if (http.begin(client, url)) {
     int code = http.GET();
+    // CRITICAL: reset state here so uiTask's SS_LOCATING pin-drop animation
+    // stops before any confirmation/error screen is drawn.
     currentState = SS_MENU;
     if (code == 200) {
       JsonDocument doc;
@@ -955,15 +1069,16 @@ void runLocatePage() {
 
         String cleanCity = String(locCity);
         cleanCity.toUpperCase();
-        updateOLED("LOCATE", "FOUND:", cleanCity, "SAVED", icon_pin);
+        drawLocateResult(cleanCity.c_str());
         waitWithButtonPoll(3000);
       } else {
-        updateOLED("LOCATE", "API ERR", "FAILED");
-        waitWithButtonPoll(3000);
+        drawErrorScreen("LOCATE", "API", "IP-API FAILED");
+        waitWithButtonPoll(2500);
       }
     } else {
-      updateOLED("LOCATE", "HTTP ERR", "CODE:" + String(code));
-      waitWithButtonPoll(3000);
+      char buf[12]; snprintf(buf, sizeof(buf), "HTTP %d", code);
+      drawErrorScreen("LOCATE", buf, "CHECK NET");
+      waitWithButtonPoll(2500);
     }
     http.end();
   }
@@ -972,13 +1087,15 @@ void runLocatePage() {
 
 void showTimePage() {
   if (!locationSynced) {
-    updateOLED("CLOCK", "LOCATION", "REQ FIRST", "RUN LOCATE");
+    drawLockedScreen(dm::ICON_TIME_LG, "CLOCK");
     waitWithButtonPoll(3000);
     return;
   }
 
-  if (!ensureWiFi())
+  if (!ensureWiFi()) {
+    currentState = SS_MENU;
     return;
+  }
   currentState = SS_CONNECTING;
   uiLine1 = "NTP SYNC...";
 
@@ -1003,13 +1120,14 @@ void showTimePage() {
 
   while (millis() - start < 8000) {
     if (getLocalTime(&tinfo)) {
-      char tStr[10], dStr[12], dayStr[16];
-      strftime(tStr, 10, "%H:%M:%S", &tinfo);
-      strftime(dStr, 12, "%d/%m/%Y", &tinfo);
-      strftime(dayStr, 16, "%A", &tinfo);
+      char hhmm[6], ss[4], dStr[12], dayStr[16];
+      strftime(hhmm, sizeof(hhmm), "%H:%M", &tinfo);
+      strftime(ss,   sizeof(ss),   "%S",    &tinfo);
+      strftime(dStr, sizeof(dStr), "%d/%m", &tinfo);
+      strftime(dayStr, sizeof(dayStr), "%a", &tinfo);
       String day = String(dayStr);
       day.toUpperCase();
-      updateOLED("CLOCK", tStr, dStr, day);
+      drawClockScreen(hhmm, ss, dStr, day.c_str());
     }
     if (waitWithButtonPoll(500))
       break; // Cancel on button press
@@ -1018,13 +1136,15 @@ void showTimePage() {
 
 void showWeatherPage() {
   if (!locationSynced) {
-    updateOLED("WEATHER", "LOCATION", "REQ FIRST", "RUN LOCATE");
+    drawLockedScreen(dm::ICON_WEATHER_LG, "WEATHER");
     waitWithButtonPoll(3000);
     return;
   }
 
-  if (!ensureWiFi())
+  if (!ensureWiFi()) {
+    currentState = SS_MENU;
     return;
+  }
   currentState = SS_SYNCING;
   uiLine1 = "FETCHING";
   uiLine2 = "DATA...";
@@ -1038,6 +1158,8 @@ void showWeatherPage() {
                "&units=metric&appid=" + String(WEATHER_API_KEY);
   if (http.begin(client, url)) {
     int code = http.GET();
+    // Reset state before drawing result — otherwise SS_SYNCING cloud+orbit
+    // animation from uiTask overlays the weather screen.
     currentState = SS_MENU;
     if (code == 200) {
       JsonDocument doc;
@@ -1045,23 +1167,38 @@ void showWeatherPage() {
       float temp = doc["main"]["temp"].as<float>();
       int hum = doc["main"]["humidity"].as<int>();
       String desc = doc["weather"][0]["main"].as<String>();
-
-      updateOLED("WEATHER", String(temp, 1) + " C", desc,
-                 "HUM: " + String(hum) + "%");
+      desc.toUpperCase();
+      drawWeatherScreen(temp, hum, desc.c_str());
     } else {
-      updateOLED("WEATHER", "API ERR", "CODE:" + String(code));
+      char buf[12]; snprintf(buf, sizeof(buf), "HTTP %d", code);
+      drawErrorScreen("WEATHER", buf, "API FAILED");
     }
     http.end();
+  } else {
+    drawErrorScreen("WEATHER", "BEGIN", "HTTP INIT");
   }
 #else
-  updateOLED("WEATHER", "30.5 C", "SUNNY", "KEY REQ");
+  drawWeatherScreen(30.5f, 68, "SUNNY");
 #endif
-  waitWithButtonPoll(8000); // Wait 8s, cancel on button press
+  // IMPORTANT: reset state BEFORE the display wait, otherwise uiTask keeps
+  // rendering the SS_SYNCING spinner over drawMenu() and the button handler
+  // (which only advances menu when state == SS_MENU/SS_WIFI_MENU) ignores presses.
+  currentState = SS_MENU;
+  waitWithButtonPoll(8000);
 }
 
 void runMeasurementFlow(String trigger) {
   if (trigger == "manual") {
-    updateOLED("AETHER", "INITIATING", "SCAN...");
+    // Splash: big scan icon + AETHER label
+    if (dm::beginFrame(portMAX_DELAY)) {
+      dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "AETHER", true, dm::ICON_SCAN);
+      dm::drawIcon24(OLED_OFFSET_X + (OLED_W - 24) / 2, OLED_OFFSET_Y + 12, dm::ICON_MEASURE_LG);
+      dm::setFont(dm::FONT_NORMAL);
+      const char *msg = "SCAN 5x";
+      int w = dm::textWidth(msg);
+      dm::drawText(OLED_OFFSET_X + (OLED_W - w) / 2, OLED_OFFSET_Y + OLED_H - 10, msg);
+      dm::endFrame();
+    }
     vTaskDelay(1000 / portTICK_PERIOD_MS);
   }
 
@@ -1074,8 +1211,8 @@ void runMeasurementFlow(String trigger) {
     unsigned long stepStart = millis();
     while (millis() - stepStart < 2500) {
       if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
-        updateOLED("AETHER", "EXITING...", "STOPPED");
-        vTaskDelay(800 / portTICK_PERIOD_MS);
+        dm::toast("EXIT SCAN", 800);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
         return;
       }
       vTaskDelay(50 / portTICK_PERIOD_MS);
@@ -1088,9 +1225,15 @@ void runMeasurementFlow(String trigger) {
     float acc = 0;
     if (mpuFound) {
       sensors_event_t ae, ge, te;
-      if (mpu.getEvent(&ae, &ge, &te))
-        acc = sqrt(sq(ae.acceleration.x) + sq(ae.acceleration.y) +
-                   sq(ae.acceleration.z));
+      // NOTE: displayMutex now guards the shared Wire bus (SSD1306 + MPU6050).
+      // Without this, an OLED refresh mid-getEvent() can corrupt the I2C txn.
+      if (xSemaphoreTake(displayMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        bool ok = mpu.getEvent(&ae, &ge, &te);
+        xSemaphoreGive(displayMutex);
+        if (ok)
+          acc = sqrt(sq(ae.acceleration.x) + sq(ae.acceleration.y) +
+                     sq(ae.acceleration.z));
+      }
     }
 
     String headerStr = "SCAN " + String(i + 1) + "/5";
@@ -1101,18 +1244,21 @@ void runMeasurementFlow(String trigger) {
       totalA += acc;
       validCount++;
       sampleLog += "[T:" + String(t, 1) + " H:" + String(h, 0) + "] ";
-      updateOLED(headerStr, "T:" + String(t, 1) + "C",
-                 "H:" + String(h, 0) + "%", "L:" + String(l));
+      drawMeasureSample(i + 1, 5, t, (int)h, l);
     } else {
       sampleLog += "[ERR] ";
-      updateOLED(headerStr, "SENSOR", "GLITCH", "SKIPPED");
+      drawMeasureGlitch(i + 1, 5);
     }
   }
 
   if (validCount > 0) {
     uiLine1 = "LINKING...";
-    if (!ensureWiFi(true))
+    if (!ensureWiFi(true)) {
+      currentState = SS_MENU;
+      drawErrorScreen("SYNC", "WIFI", "LINK DOWN");
+      vTaskDelay(1500 / portTICK_PERIOD_MS);
       return;
+    }
 
     currentState = SS_SYNCING;
     uiLine1 = "SYNCING...";
@@ -1137,6 +1283,7 @@ void runMeasurementFlow(String trigger) {
     }
 
     // Task 2: Data Upload
+    bool uploadOk = false;
     if (http.begin(client, String(SUPABASE_URL) + "/rest/v1/room_readings")) {
       http.addHeader("apikey", SUPABASE_KEY);
       http.addHeader("Authorization", "Bearer " + String(SUPABASE_KEY));
@@ -1151,7 +1298,9 @@ void runMeasurementFlow(String trigger) {
       String body;
       serializeJson(doc, body);
       int code = http.POST(body);
+      Serial.printf("[UPLOAD] room_readings HTTP %d\n", code);
       if (code >= 200 && code < 300) {
+        uploadOk = true;
         measureCount++;
         saveWiFiSnapshot(); // Commit valid connection to NVS
         preferences.begin("stats", false);
@@ -1182,8 +1331,8 @@ void runMeasurementFlow(String trigger) {
             }
             String sessionBody;
             serializeJson(sessionDoc, sessionBody);
-            int code = http.POST(sessionBody);
-            if (code >= 200 && code < 300) {
+            int sessCode = http.POST(sessionBody);
+            if (sessCode >= 200 && sessCode < 300) {
               logQueue.count = 0;
               preferences.begin("logs_v2", false);
               preferences.putBytes("queue", &logQueue, sizeof(LogQueue));
@@ -1191,176 +1340,486 @@ void runMeasurementFlow(String trigger) {
             }
           }
         }
-
-        currentState = SS_MENU;
-        updateOLED("CLOUD", "SYNCED", "SUCCESS", "SAVED", icon_cloud);
-        vTaskDelay(1500 / portTICK_PERIOD_MS);
       }
       http.end();
     }
+    // ALWAYS reset state so uiTask/button handling can resume even on failure.
     currentState = SS_MENU;
+    if (uploadOk) {
+      // Explicit success screen (a toast can't overlay here because
+      // g_menuOwnedByPage suppresses uiTask rendering during this blocking wait).
+      drawConfirmScreen("CLOUD", "SYNCED", "DATA SAVED");
+      vTaskDelay(1500 / portTICK_PERIOD_MS);
+    } else {
+      drawErrorScreen("CLOUD", "UPLOAD", "RETRY LATER");
+      vTaskDelay(1500 / portTICK_PERIOD_MS);
+    }
   } else {
-    updateOLED("ERROR", "SENSOR", "FAILED", "NO DATA");
+    drawErrorScreen("SENSOR", "NO DATA", "CHECK WIRES");
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
 
 void runResetStats() {
-  updateOLED("RESET", "CLEARING", "HISTORY...");
+  bool ok = drawConfirmPromptAndWait("RESET STATS", "CLEAR ALL?",
+                                     "HOLD=OK  TAP=NO", 5000);
+  if (!ok) {
+    drawConfirmScreen("STATS", "KEPT", "CANCELLED");
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    return;
+  }
   bootCount = 0;
   measureCount = 0;
   preferences.begin("stats", false);
   preferences.putInt("boots", 0);
   preferences.putInt("measures", 0);
   preferences.end();
-  vTaskDelay(1500 / portTICK_PERIOD_MS);
-  updateOLED("RESET", "STATS", "CLEARED");
-  vTaskDelay(1500 / portTICK_PERIOD_MS);
+  drawConfirmScreen("STATS", "CLEARED", "0 BOOTS 0 SCANS");
+  vTaskDelay(1400 / portTICK_PERIOD_MS);
+}
+
+// --- Custom page renderers -------------------------------------------------
+// Each of these takes the display mutex via dm::beginFrame/endFrame, draws a
+// bespoke layout, and returns. Called from monitorTask while g_menuOwnedByPage
+// is true so uiTask doesn't overwrite them.
+
+static void drawClockScreen(const char *hhmm, const char *ss,
+                            const char *ddmmyy, const char *day) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, day, false, dm::ICON_WIFI);
+
+  // Big HH:MM centred vertically in the body area.
+  dm::setFont(dm::FONT_HUGE);
+  int w = dm::textWidth(hhmm);
+  int x = OLED_OFFSET_X + (OLED_W - w) / 2;
+  if (x < 0) x = 0;
+  dm::drawText(x, OLED_OFFSET_Y + 12, hhmm);  // occupies y=12..30
+
+  // Two dot indicators bracketing the numbers to fill the empty space to
+  // the sides — small blinking bullet points that pulse each second.
+  int secInt = (ss && ss[0] && ss[1]) ? ((ss[0]-'0')*10 + (ss[1]-'0')) : 0;
+  bool blink = (secInt & 1);
+  int dotY = OLED_OFFSET_Y + 20;
+  if (blink) {
+    dm::drawFilledCircle(OLED_OFFSET_X + 2, dotY, 1);
+    dm::drawFilledCircle(OLED_OFFSET_X + OLED_W - 3, dotY, 1);
+  }
+
+  // Footer inverted bar: date on left, ticking seconds on right.
+  // Bar top at y=39 keeps a 8-px gap under the digits (which end at y=30).
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawTextInverted(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, ddmmyy);
+  int sw = dm::textWidth(ss);
+  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - sw - 2, OLED_OFFSET_Y + OLED_H - 8, ss);
+
+  // Seconds progress bar just above the footer (y=35..36), safely below the
+  // digits' descenders (which end at y=31).
+  int barX = OLED_OFFSET_X + 4;
+  int barY = OLED_OFFSET_Y + 35;
+  int barMaxW = OLED_W - 8;
+  int barFill = (barMaxW * secInt) / 60;
+  dm::drawHLine(barX, barY + 1, barMaxW);
+  if (barFill > 0) dm::drawFilledRect(barX, barY, barFill, 2);
+  dm::endFrame();
+}
+
+// Two-column value renderer used by Weather/Stats/Measure.
+// Draws a centred SMALL label on the top row and a centred HUGE numeric value
+// on the middle row. Guarantees the value never overflows the column (long
+// values are shrunk to FONT_LARGE, then FONT_NORMAL, then truncated).
+static void drawColumnValue(int colX, int colW, int topY,
+                            const char *label, const char *value) {
+  // Label row (7 px tall)
+  dm::setFont(dm::FONT_SMALL);
+  int lw = dm::textWidth(label);
+  if (lw > colW) lw = colW;
+  int lx = colX + (colW - lw) / 2;
+  dm::drawText(lx, topY, label);
+
+  // Value row — try HUGE first, downgrade if it doesn't fit.
+  const uint16_t VALUE_Y_OFFSET = 8;   // just below the label
+  dm::Font trials[] = { dm::FONT_HUGE, dm::FONT_LARGE, dm::FONT_NORMAL };
+  int vw = 0;
+  int pickedFont = 2;
+  for (int i = 0; i < 3; i++) {
+    dm::setFont(trials[i]);
+    vw = dm::textWidth(value);
+    if (vw <= colW - 2) { pickedFont = i; break; }
+  }
+  dm::setFont(trials[pickedFont]);
+  int vx = colX + (colW - vw) / 2;
+  if (vx < colX) vx = colX;
+  dm::drawText(vx, topY + VALUE_Y_OFFSET, value);
+}
+static void drawWeatherScreen(float tempC, int humPct, const char *desc) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "WEATHER", false, dm::ICON_WIFI);
+
+  int tInt = (int)(tempC + 0.5f);
+  if (tInt > 99) tInt = 99;
+  if (tInt < -9) tInt = -9;
+  if (humPct > 99) humPct = 99;
+  if (humPct < 0)  humPct = 0;
+  char tempBuf[6], humBuf[6];
+  snprintf(tempBuf, sizeof(tempBuf), "%d", tInt);
+  snprintf(humBuf,  sizeof(humBuf),  "%d", humPct);
+
+  // Two columns, unit lives in the label row so nothing collides horizontally.
+  drawColumnValue(OLED_OFFSET_X + 2, 28, OLED_OFFSET_Y + 11, "TEMP C", tempBuf);
+  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
+  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "HUM %", humBuf);
+
+  // Footer inverted bar with condition text.
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  dm::setFont(dm::FONT_SMALL);
+  int dw = dm::textWidth(desc);
+  int dx = OLED_OFFSET_X + (OLED_W - dw) / 2;
+  if (dx < 2) dx = 2;
+  dm::drawTextInverted(dx, OLED_OFFSET_Y + OLED_H - 8, desc);
+  dm::endFrame();
+}
+
+static void drawStatsScreen(uint32_t measures, uint32_t boots, uint32_t uptimeMin) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "STATS", false, dm::ICON_WIFI);
+
+  auto fmtCompact = [](uint32_t v, char *out, size_t n) {
+    if (v < 1000)         snprintf(out, n, "%lu",  (unsigned long)v);
+    else if (v < 10000)   snprintf(out, n, "%lu.%luk",
+                                   (unsigned long)(v/1000),
+                                   (unsigned long)((v%1000)/100));
+    else                  snprintf(out, n, "%luk", (unsigned long)(v/1000));
+  };
+  char mb[10], bb[10];
+  fmtCompact(measures, mb, sizeof(mb));
+  fmtCompact(boots,    bb, sizeof(bb));
+
+  drawColumnValue(OLED_OFFSET_X + 2,  28, OLED_OFFSET_Y + 11, "MEAS", mb);
+  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
+  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "BOOT", bb);
+
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  char up[20];
+  if (uptimeMin < 60)         snprintf(up, sizeof(up), "UP %lum",  (unsigned long)uptimeMin);
+  else if (uptimeMin < 1440)  snprintf(up, sizeof(up), "UP %luh %lum",
+                                       (unsigned long)(uptimeMin/60),
+                                       (unsigned long)(uptimeMin%60));
+  else                        snprintf(up, sizeof(up), "UP %lud %luh",
+                                       (unsigned long)(uptimeMin/1440),
+                                       (unsigned long)((uptimeMin%1440)/60));
+  dm::setFont(dm::FONT_SMALL);
+  int uw = dm::textWidth(up);
+  int ux = OLED_OFFSET_X + (OLED_W - uw) / 2;
+  if (ux < 2) ux = 2;
+  dm::drawTextInverted(ux, OLED_OFFSET_Y + OLED_H - 8, up);
+  dm::endFrame();
+}
+
+// LOCATE result: pin icon + big city name.
+static void drawLocateResult(const char *city) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "LOCATE", true, dm::ICON_PIN);
+  dm::drawIcon24(OLED_OFFSET_X + (OLED_W - 24) / 2, OLED_OFFSET_Y + 12, dm::ICON_LOCATE_LG);
+  dm::setFont(dm::FONT_NORMAL);
+  int w = dm::textWidth(city);
+  int x = OLED_OFFSET_X + (OLED_W - w) / 2;
+  if (x < 0) x = 0;
+  dm::drawText(x, OLED_OFFSET_Y + OLED_H - 10, city);
+  dm::endFrame();
+}
+
+static void drawMeasureSample(int sampleIdx, int totalSamples,
+                              float tempC, int humPct, int ldr) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  char headBuf[16];
+  snprintf(headBuf, sizeof(headBuf), "SCAN %d/%d", sampleIdx, totalSamples);
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, headBuf, true, dm::ICON_SCAN);
+
+  int tInt = (int)(tempC + 0.5f);
+  if (tInt > 99) tInt = 99;
+  if (tInt < -9) tInt = -9;
+  if (humPct > 99) humPct = 99;
+  if (humPct < 0)  humPct = 0;
+  char tempBuf[6], humBuf[6];
+  snprintf(tempBuf, sizeof(tempBuf), "%d", tInt);
+  snprintf(humBuf,  sizeof(humBuf),  "%d", humPct);
+
+  drawColumnValue(OLED_OFFSET_X + 2,  28, OLED_OFFSET_Y + 11, "TEMP C", tempBuf);
+  dm::drawVLine(OLED_OFFSET_X + 32, OLED_OFFSET_Y + 11, 26);
+  drawColumnValue(OLED_OFFSET_X + 34, 28, OLED_OFFSET_Y + 11, "HUM %", humBuf);
+
+  // Footer: LDR value in inverted bar.
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - 9, OLED_W, 9);
+  dm::setFont(dm::FONT_SMALL);
+  char lb[12]; snprintf(lb, sizeof(lb), "LDR %d", ldr);
+  int lw = dm::textWidth(lb);
+  int lx = OLED_OFFSET_X + (OLED_W - lw) / 2;
+  if (lx < 2) lx = 2;
+  dm::drawTextInverted(lx, OLED_OFFSET_Y + OLED_H - 8, lb);
+  dm::endFrame();
+}
+
+// Sensor GLITCH screen — bold X marker.
+static void drawMeasureGlitch(int sampleIdx, int totalSamples) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  char headBuf[16];
+  snprintf(headBuf, sizeof(headBuf), "SCAN %d/%d", sampleIdx, totalSamples);
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, headBuf, true, dm::ICON_SCAN);
+  // X mark centre
+  int cx = OLED_OFFSET_X + OLED_W / 2;
+  int cy = OLED_OFFSET_Y + 26;
+  dm::drawLine(cx - 8, cy - 8, cx + 8, cy + 8);
+  dm::drawLine(cx - 8, cy + 8, cx + 8, cy - 8);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawText(OLED_OFFSET_X + 8, OLED_OFFSET_Y + OLED_H - 8, "GLITCH");
+  dm::endFrame();
+}
+
+// Bespoke error screen: header title inverted (red-ish feel on monochrome),
+// bold X + large error code, small hint at bottom.
+static void drawErrorScreen(const char *title, const char *code, const char *hint) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, title, false, dm::ICON_WIFI);
+
+  // Left half: big X mark
+  int cx = OLED_OFFSET_X + 12;
+  int cy = OLED_OFFSET_Y + 26;
+  int r  = 9;
+  dm::drawCircle(cx, cy, r);
+  dm::drawLine(cx - 5, cy - 5, cx + 5, cy + 5);
+  dm::drawLine(cx - 5, cy + 5, cx + 5, cy - 5);
+
+  // Right half: code (large) and hint (small)
+  if (code && code[0]) {
+    dm::setFont(dm::FONT_NORMAL);
+    dm::drawText(OLED_OFFSET_X + 26, OLED_OFFSET_Y + 18, code);
+  }
+  if (hint && hint[0]) {
+    dm::setFont(dm::FONT_SMALL);
+    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, hint);
+  }
+  dm::endFrame();
+}
+
+// Locked-state pre-req screen: dimmed feature icon + arrow → LOCATE prompt.
+static void drawLockedScreen(dm::Icon featureIcon, const char *featureName) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, featureName, false, dm::ICON_WIFI);
+
+  // Feature icon (dimmed by drawing then punching a checker mask)
+  int ix = OLED_OFFSET_X + 4;
+  int iy = OLED_OFFSET_Y + 12;
+  dm::drawIcon24(ix, iy, featureIcon);
+  // Dither mask over the icon: overlay every-other pixel as bg to simulate dim.
+  for (int y = iy; y < iy + 24; y++) {
+    for (int x = ix; x < ix + 24; x++) {
+      if (((x + y) & 1) == 0) {
+        dm::clearRect(x, y, 1, 1);
+      }
+    }
+  }
+
+  // Arrow "→" (drawn as line + head)
+  int ax = OLED_OFFSET_X + 30, ay = OLED_OFFSET_Y + 24;
+  dm::drawHLine(ax, ay, 8);
+  dm::drawLine(ax + 8, ay, ax + 5, ay - 3);
+  dm::drawLine(ax + 8, ay, ax + 5, ay + 3);
+
+  // Prompt icon (small locate pin) + label
+  dm::drawIcon24(OLED_OFFSET_X + OLED_W - 24, OLED_OFFSET_Y + 12, dm::ICON_LOCATE_LG);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "RUN LOCATE FIRST");
+  dm::endFrame();
+}
+
+// WiFi connecting splash used inside tryConnect(). Shows an expanding-arc
+// pulse around a small WiFi glyph. `elapsedMs` drives the arc animation.
+static void drawWifiConnecting(const char *ssid, int elapsedMs) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "LINKING", false, dm::ICON_WIFI);
+  int cx = OLED_OFFSET_X + 14;
+  int cy = OLED_OFFSET_Y + 26;
+  // Central dot
+  dm::drawFilledCircle(cx, cy, 2);
+  // Three expanding arc rings, phase-shifted by elapsedMs (period 1200ms)
+  int phase = (elapsedMs / 100) % 12;
+  for (int i = 0; i < 3; i++) {
+    int r = ((phase + i * 4) % 12) + 3;   // 3..14
+    if (r >= 4 && r <= 12) dm::drawCircle(cx, cy, r);
+  }
+  // SSID (truncated)
+  dm::setFont(dm::FONT_NORMAL);
+  char sbuf[10];
+  if (ssid) { strncpy(sbuf, ssid, 9); sbuf[9] = 0; }
+  else      { sbuf[0] = 0; }
+  dm::drawText(OLED_OFFSET_X + 28, OLED_OFFSET_Y + 20, sbuf);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "[TAP] CANCEL");
+  dm::endFrame();
+}
+
+// Bespoke success/confirmation screen. Uses a filled disc + inverted checkmark
+// left, title in header, big line + small hint on the right.
+static void drawConfirmScreen(const char *title, const char *big, const char *hint) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, title, false, dm::ICON_WIFI);
+  // Filled disc with a punched checkmark
+  int cx = OLED_OFFSET_X + 12;
+  int cy = OLED_OFFSET_Y + 26;
+  int r  = 9;
+  dm::drawFilledCircle(cx, cy, r);
+  // Checkmark cut out (bg colour lines)
+  int ax = cx - 4, ay = cy;
+  int bx = cx - 1, by = cy + 3;
+  int c2x = cx + 4, c2y = cy - 3;
+  // draw two thick lines by drawing 2 parallel lines
+  for (int off = 0; off <= 1; off++) {
+    dm::clearRect(ax,   ay + off, 1, 1);
+    dm::clearRect(ax+1, ay+1+off, 1, 1);
+    dm::clearRect(bx-1, by-1+off, 1, 1);
+    dm::clearRect(bx,   by+off,   1, 1);
+    dm::clearRect(bx+1, by-1+off, 1, 1);
+    dm::clearRect(bx+2, by-2+off, 1, 1);
+    dm::clearRect(bx+3, by-3+off, 1, 1);
+    dm::clearRect(c2x-1, c2y+1+off, 1, 1);
+    dm::clearRect(c2x,   c2y+off,   1, 1);
+  }
+  if (big && big[0]) {
+    dm::setFont(dm::FONT_NORMAL);
+    dm::drawText(OLED_OFFSET_X + 26, OLED_OFFSET_Y + 18, big);
+  }
+  if (hint && hint[0]) {
+    dm::setFont(dm::FONT_SMALL);
+    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, hint);
+  }
+  dm::endFrame();
+}
+
+// Prompt screen: shows a title + body + two-line hints ("HOLD OK" / "TAP NO")
+// and blocks until either the user long-presses (returns true), taps (returns
+// false), or the timeout elapses (returns false).
+static bool drawConfirmPromptAndWait(const char *title, const char *body,
+                                     const char *hint, uint32_t timeoutMs) {
+  (void)hint;   // hint arg kept for API stability but hints are now inlined
+  uint32_t start = millis();
+  bool longPressSeen = false;
+  buttonEvent = false;
+  while (millis() - start < timeoutMs) {
+    if (dm::beginFrame(50)) {
+      dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, title, false, dm::ICON_WIFI);
+      dm::setFont(dm::FONT_NORMAL);
+      dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 14, body);
+      // Two-line hint stack so nothing overflows the 64 px width.
+      dm::setFont(dm::FONT_SMALL);
+      dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 28, "HOLD = OK");
+      dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 36, "TAP  = NO");
+      // Countdown ring
+      uint32_t remainMs = timeoutMs - (millis() - start);
+      int pct = (int)((remainMs * 100) / timeoutMs);
+      dm::drawRect(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 3,
+                   OLED_W - 4, 2);
+      int fill = ((OLED_W - 6) * pct) / 100;
+      if (fill > 0) dm::drawFilledRect(OLED_OFFSET_X + 3, OLED_OFFSET_Y + OLED_H - 2, fill, 0);
+      dm::endFrame();
+    }
+    if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
+      if (!longPressTriggered) {
+        longPressTriggered = true;
+        longPressSeen = true;
+        return true;
+      }
+    }
+    if (buttonEvent) { buttonEvent = false; return false; }
+    vTaskDelay(20 / portTICK_PERIOD_MS);
+  }
+  return longPressSeen;
 }
 
 void showStatsPage() {
   uint32_t totalMin = config.totalLifetimeRuntime / 60;
-  String upStr = "UP:" + String(totalMin) + "m";
-  if (totalMin > 1440)
-    upStr = "UP:" + String(totalMin / 60) + "h";
-
-  updateOLED("STATS", "MES:" + String(measureCount), "BOT:" + String(bootCount),
-             upStr);
-  waitWithButtonPoll(5000); // Cancel on button press
+  drawStatsScreen(measureCount, bootCount, totalMin);
+  waitWithButtonPoll(5000);
 }
 
-void drawMenu() {
-  if (xSemaphoreTake(displayMutex, pdMS_TO_TICKS(100))) {
-    display.clearDisplay();
-
-    // Header Logic (Universal for both menus)
-    display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10, SSD1306_WHITE);
-    display.setTextColor(SSD1306_BLACK);
-
-    String headStr = "";
-    if (currentState == SS_WIFI_MENU) {
-      headStr = "WIFI CFG";
-    } else {
-      if (locationSynced)
-        headStr = String(locCity).substring(0, 3);
-      else
-        headStr = "Loc:-";
-    }
-    headStr.toUpperCase();
-    display.setCursor(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 1);
-    display.print(headStr);
-
-    // WiFi Status Icon
-    if (WiFi.status() == WL_CONNECTED) {
-      display.drawBitmap(OLED_OFFSET_X + OLED_W - 10, OLED_OFFSET_Y + 1,
-                         icon_wifi, 8, 8, SSD1306_BLACK);
-    } else {
-      display.setCursor(OLED_OFFSET_X + OLED_W - 8, OLED_OFFSET_Y + 1);
-      display.print("x");
-    }
-
-    if (currentState == SS_WIFI_MENU) {
-      int startIdx = currentWiFiMenuIndex - (VISIBLE_MENU_ITEMS / 2);
-      if (startIdx < 0)
-        startIdx = 0;
-      if (startIdx > TOTAL_WIFI_MENU_ITEMS - VISIBLE_MENU_ITEMS)
-        startIdx = TOTAL_WIFI_MENU_ITEMS - VISIBLE_MENU_ITEMS;
-
-      for (int i = 0; i < VISIBLE_MENU_ITEMS; i++) {
-        int idx = startIdx + i;
-        int y = OLED_OFFSET_Y + 14 + (i * 11);
-        if (idx == currentWiFiMenuIndex) {
-          display.fillRect(OLED_OFFSET_X, y - 1, OLED_W, 11, SSD1306_WHITE);
-          display.setTextColor(SSD1306_BLACK);
-        } else {
-          display.setTextColor(SSD1306_WHITE);
-        }
-        display.setCursor(OLED_OFFSET_X + 2, y);
-
-        display.print(wifiMenuItems[idx]);
-      }
-    } else {
-      int startItem = currentMenuIndex - (VISIBLE_MENU_ITEMS / 2);
-      if (startItem < 0)
-        startItem = 0;
-      if (startItem > TOTAL_MENU_ITEMS - VISIBLE_MENU_ITEMS)
-        startItem = TOTAL_MENU_ITEMS - VISIBLE_MENU_ITEMS;
-
-      for (int i = 0; i < VISIBLE_MENU_ITEMS; i++) {
-        int idx = startItem + i;
-        int y = OLED_OFFSET_Y + 14 + (i * 11);
-        if (idx == currentMenuIndex) {
-          display.fillRect(OLED_OFFSET_X, y - 1, OLED_W, 11, SSD1306_WHITE);
-          display.setTextColor(SSD1306_BLACK);
-        } else {
-          display.setTextColor(SSD1306_WHITE);
-        }
-        display.setCursor(OLED_OFFSET_X + 2, y);
-        if (idx == PAGE_LED) {
-          display.print("LED: ");
-          display.print(config.ledEnabled ? "ON" : "OFF");
-        } else if (idx == PAGE_INTERVAL) {
-          display.print("SLEEP: ");
-          if (config.sleepMinutes < 60) {
-            display.print(config.sleepMinutes);
-            display.print("M");
-          } else {
-            display.print("1H");
-          }
-        } else {
-          display.print(menuItems[idx]);
-        }
-      }
-    }
-
-    // Auto Deep Sleep Timer Bar (Bottom)
-    unsigned long elapsed = millis() - lastInteractionTime;
-    if (elapsed < MENU_TIMEOUT) {
-      int barWidth = map(elapsed, 0, MENU_TIMEOUT, OLED_W - 4, 0);
-      display.fillRect(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 3, barWidth,
-                       2, SSD1306_WHITE);
-    }
-
-    display.display();
-    xSemaphoreGive(displayMutex);
-  }
-}
+// drawMenu() is now a no-op wrapper (uiTask owns menu rendering). Kept for
+// callers that still invoke it during startup; harmless when nothing draws.
+void drawMenu() { /* moved to uiTask */ }
 
 void enterDeepSleep() {
   currentState = SS_SLEEPING;
+  g_menuOwnedByPage = true;   // Suppress uiTask menu render during sleep anim
   if (oledFound) {
-    if (xSemaphoreTake(displayMutex, portMAX_DELAY)) {
-      for (int i = 0; i <= 10; i++) {
-        display.clearDisplay();
+    // Sleep sequence, three visually-distinct phases:
+    //   Phase 1 (0..600ms):  "GOOD NITE" reveal — text wipes in from top
+    //   Phase 2 (600..1000ms): CRT-off vertical collapse — top+bottom black
+    //                          bars converge to a bright midline
+    //   Phase 3 (1000..1200ms): midline shrinks horizontally to a centre dot,
+    //                          then a brief flash, then black.
+    const int P1_FRAMES = 12;
+    const int P2_FRAMES = 8;
+    const int P3_FRAMES = 4;
 
-        // Header
-        display.fillRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10,
-                         SSD1306_WHITE);
-        display.setTextColor(SSD1306_BLACK);
-        display.setCursor(OLED_OFFSET_X + 4, OLED_OFFSET_Y + 1);
-        display.print("SLEEPING...");
-
-        // Power Icon
-        int cx = OLED_OFFSET_X + 32;
-        int cy = OLED_OFFSET_Y + 28;
-        display.drawCircle(cx, cy, 10, SSD1306_WHITE);
-        display.fillRect(cx - 3, cy - 13, 7, 6, SSD1306_BLACK);
-        display.drawLine(cx, cy - 11, cx, cy - 2, SSD1306_WHITE);
-
-        // Progress Bar
-        int barW = map(i, 0, 10, 0, 40);
-        display.drawRect(OLED_OFFSET_X + 12, OLED_OFFSET_Y + 42, 40, 3,
-                         SSD1306_WHITE);
-        display.fillRect(OLED_OFFSET_X + 12, OLED_OFFSET_Y + 42, barW, 3,
-                         SSD1306_WHITE);
-
-        display.display();
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+    // Phase 1: reveal via retracting bg mask from bottom.
+    for (int i = 0; i < P1_FRAMES; i++) {
+      if (!dm::beginFrame(portMAX_DELAY)) break;
+      dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "SLEEP", false, dm::ICON_WIFI);
+      dm::setFont(dm::FONT_HUGE);
+      const char *msg = "GOOD";
+      int mw = dm::textWidth(msg);
+      dm::drawText(OLED_OFFSET_X + (OLED_W - mw) / 2, OLED_OFFSET_Y + 12, msg);
+      dm::setFont(dm::FONT_LARGE);
+      const char *msg2 = "NITE";
+      int mw2 = dm::textWidth(msg2);
+      dm::drawText(OLED_OFFSET_X + (OLED_W - mw2) / 2, OLED_OFFSET_Y + 30, msg2);
+      // Retract bg mask from bottom
+      int revealH = (OLED_H - 10) * (P1_FRAMES - i) / P1_FRAMES;
+      if (revealH > 0) {
+        dm::clearRect(OLED_OFFSET_X, OLED_OFFSET_Y + OLED_H - revealH,
+                      OLED_W, revealH);
       }
-      display.clearDisplay();
-      display.display();
-      xSemaphoreGive(displayMutex);
+      dm::endFrame();
+      vTaskDelay(50 / portTICK_PERIOD_MS);
     }
+
+    // Phase 2: CRT-off vertical collapse.
+    for (int i = 0; i <= P2_FRAMES; i++) {
+      if (!dm::beginFrame(portMAX_DELAY)) break;
+      dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "SLEEP", false, dm::ICON_WIFI);
+      dm::setFont(dm::FONT_HUGE);
+      const char *msg = "GOOD";
+      int mw = dm::textWidth(msg);
+      dm::drawText(OLED_OFFSET_X + (OLED_W - mw) / 2, OLED_OFFSET_Y + 12, msg);
+      dm::setFont(dm::FONT_LARGE);
+      const char *msg2 = "NITE";
+      int mw2 = dm::textWidth(msg2);
+      dm::drawText(OLED_OFFSET_X + (OLED_W - mw2) / 2, OLED_OFFSET_Y + 30, msg2);
+
+      int midY = OLED_OFFSET_Y + 10 + (OLED_H - 10) / 2;
+      int barMax = (OLED_H - 10) / 2;
+      int barH = (barMax * i) / P2_FRAMES;
+      dm::clearRect(OLED_OFFSET_X, midY - barH, OLED_W, barH);
+      dm::clearRect(OLED_OFFSET_X, midY, OLED_W, barH);
+      dm::drawHLine(OLED_OFFSET_X, midY, OLED_W);
+      dm::endFrame();
+      vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+
+    // Phase 3: horizontal collapse of the midline to a centre dot.
+    for (int i = 0; i <= P3_FRAMES; i++) {
+      if (!dm::beginFrame(portMAX_DELAY)) break;
+      int midY = OLED_OFFSET_Y + 10 + (OLED_H - 10) / 2;
+      int lineW = (OLED_W * (P3_FRAMES - i)) / P3_FRAMES;
+      int lineX = OLED_OFFSET_X + (OLED_W - lineW) / 2;
+      if (lineW > 0) dm::drawHLine(lineX, midY, lineW);
+      if (i == P3_FRAMES) {
+        dm::drawFilledCircle(OLED_OFFSET_X + OLED_W / 2, midY, 1);
+      }
+      dm::endFrame();
+      vTaskDelay(50 / portTICK_PERIOD_MS);
+    }
+
+    dm::hardClear();
   }
 
   ledcDetachPin(RED_PIN);
@@ -1431,14 +1890,20 @@ void monitorTask(void *pvParameters) {
   digitalWrite(OLED_RST, LOW);
   vTaskDelay(50);
   digitalWrite(OLED_RST, HIGH);
-  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
-    oledFound = true;
-  else if (display.begin(SSD1306_SWITCHCAPVCC, 0x3D))
-    oledFound = true;
+  oledFound = dm::init(displayMutex);
   esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
+
+  // Phase 3: boot splash on cold boot only (button-wake stays fast).
+  if (oledFound && reason != ESP_SLEEP_WAKEUP_EXT0) {
+    dm::bootSplash();
+  }
+
   if (reason == ESP_SLEEP_WAKEUP_EXT0) {
     lastInteractionTime = millis();
     buttonEvent = false; // Clear any wakeup noise
+    // Seed menu scroll positions so first animation is smooth.
+    menuScrollPos = (float)currentMenuIndex;
+    wifiMenuScrollPos = 0.f;
     while (millis() - lastInteractionTime < MENU_TIMEOUT) {
       bool triggerAction = false;
       if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
@@ -1451,9 +1916,11 @@ void monitorTask(void *pvParameters) {
         setLED(0, 10, 20);
       }
 
-      drawMenu();
+      // Rendering happens in uiTask; monitorTask only mutates state.
 
       if (triggerAction) {
+        // Hand over rendering to the invoked subpage so uiTask doesn't fight it.
+        g_menuOwnedByPage = true;
         if (currentState == SS_MENU) {
           if (currentMenuIndex == PAGE_MEASURE)
             runMeasurementFlow("manual");
@@ -1463,15 +1930,20 @@ void monitorTask(void *pvParameters) {
             showWeatherPage();
           else if (currentMenuIndex == PAGE_LOCATE)
             runLocatePage();
-          else if (currentMenuIndex == PAGE_LED)
+          else if (currentMenuIndex == PAGE_LED) {
             toggleLED();
-          else if (currentMenuIndex == PAGE_INTERVAL)
+            dm::toast(config.ledEnabled ? "LED ON" : "LED OFF", 900);
+          } else if (currentMenuIndex == PAGE_INTERVAL) {
             cycleSleepInterval();
-          else if (currentMenuIndex == PAGE_STATS)
+            char buf[16];
+            snprintf(buf, sizeof(buf), "SLEEP %dM", config.sleepMinutes);
+            dm::toast(buf, 900);
+          } else if (currentMenuIndex == PAGE_STATS)
             showStatsPage();
           else if (currentMenuIndex == PAGE_PORTAL) {
             currentState = SS_WIFI_MENU;
             currentWiFiMenuIndex = 0;
+            wifiMenuScrollPos = 0.f;
           } else if (currentMenuIndex == PAGE_RESET)
             runResetStats();
           else if (currentMenuIndex == PAGE_SLEEP)
@@ -1483,26 +1955,41 @@ void monitorTask(void *pvParameters) {
             showSavedWiFi();
           else if (currentWiFiMenuIndex == WF_CLEAR)
             deleteSavedWiFi();
-          else if (currentWiFiMenuIndex == WF_BACK)
+          else if (currentWiFiMenuIndex == WF_BACK) {
             currentState = SS_MENU;
+            menuScrollPos = (float)currentMenuIndex;
+          }
         }
+        g_menuOwnedByPage = false;
         lastInteractionTime = millis();
       }
 
       if (buttonEvent) {
         buttonEvent = false;
         if (currentState == SS_MENU) {
+          int oldIdx = currentMenuIndex;
           currentMenuIndex = (currentMenuIndex + 1) % TOTAL_MENU_ITEMS;
+          // Smooth scroll (shortest-path). +1 forward each press.
+          float delta = shortestSignedDelta(oldIdx, currentMenuIndex, TOTAL_MENU_ITEMS);
+          menuTween.start_(menuScrollPos, menuScrollPos + delta, 180);
         } else if (currentState == SS_WIFI_MENU) {
+          int oldIdx = currentWiFiMenuIndex;
           currentWiFiMenuIndex =
               (currentWiFiMenuIndex + 1) % TOTAL_WIFI_MENU_ITEMS;
+          float delta = shortestSignedDelta(oldIdx, currentWiFiMenuIndex,
+                                            TOTAL_WIFI_MENU_ITEMS);
+          wifiMenuTween.start_(wifiMenuScrollPos, wifiMenuScrollPos + delta, 180);
         }
         lastInteractionTime = millis();
       }
       vTaskDelay(50 / portTICK_PERIOD_MS);
     }
   } else {
+    // Auto-measure after timer wake: uiTask would otherwise render the
+    // cover-flow menu underneath the measurement screens. Take ownership.
+    g_menuOwnedByPage = true;
     runMeasurementFlow("auto");
+    g_menuOwnedByPage = false;
   }
   enterDeepSleep();
 }
@@ -1516,6 +2003,7 @@ void setup() {
   displayMutex = xSemaphoreCreateMutex();
 
   dht.begin();
+  // Note: mpu.begin() uses Wire before RTOS tasks start — safe (no contention yet).
   if (mpu.begin())
     mpuFound = true;
 
