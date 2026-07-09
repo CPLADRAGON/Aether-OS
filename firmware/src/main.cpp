@@ -1334,6 +1334,12 @@ void runMeasurementFlow(String trigger) {
   }
 
   if (validCount > 0) {
+    // Append to the local trend history immediately — this must happen
+    // before any WiFi/upload attempt so a connectivity failure never causes
+    // the on-device history to silently fall behind reality.
+    appendTrendPoint(totalT / validCount, totalH / validCount,
+                     (int)(totalL / validCount));
+
     uiLine1 = "LINKING...";
     if (!ensureWiFi(true)) {
       currentState = SS_MENU;
@@ -2098,6 +2104,7 @@ void monitorTask(void *pvParameters) {
 
   loadConfig();
   migrateNVS();
+  loadTrendHistory();
 
   // Stealth Mode Check
   if (config.ledEnabled) {
