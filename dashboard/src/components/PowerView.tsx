@@ -77,18 +77,18 @@ export default function PowerView({ sessions, filteredSessions, periodNavigation
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card p-6 min-h-[350px]">
-          <h2 className="text-sm font-medium text-[#a1a1aa] mb-6">Session Volatility Index</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+        <div className="card p-4 sm:p-6">
+          <h2 className="text-sm font-medium text-[#a1a1aa] mb-4 sm:mb-6">Session Volatility Index</h2>
           <SessionVolatilityChart sessions={filteredSessions} />
         </div>
-        <div className="card p-6 min-h-[350px]">
-          <h2 className="text-sm font-medium text-[#a1a1aa] mb-6">Uptime Accumulation Plot</h2>
+        <div className="card p-4 sm:p-6">
+          <h2 className="text-sm font-medium text-[#a1a1aa] mb-4 sm:mb-6">Uptime Accumulation Plot</h2>
           <UptimeAccumulationChart sessions={filteredSessions} />
         </div>
       </div>
 
-      <div className="card p-6">
+      <div className="card p-4 sm:p-6">
         <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
           <h2 className="text-lg font-medium text-[#f4f4f5]">Recent Syncs</h2>
           {periodNavigation}

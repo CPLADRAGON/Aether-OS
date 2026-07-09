@@ -32,26 +32,26 @@ export default function Layout({ realtimeStatus, activeTab, onTabChange, childre
 
   return (
     <div className="min-h-screen bg-[#0d0d0f] text-[#f4f4f5]">
-      <header className="sticky top-0 z-50 flex justify-between items-center px-6 py-3 w-full bg-[#0d0d0f] border-b border-[#1f1f23]">
-        <div className="flex items-center gap-6">
+      <header className="sticky top-0 z-50 flex justify-between items-center px-4 sm:px-6 py-3 w-full bg-[#0d0d0f] border-b border-[#1f1f23]">
+        <div className="flex items-center gap-3 sm:gap-6">
           <span className="text-base font-semibold text-[#f4f4f5]">Aether</span>
           <nav className="flex items-center gap-1">
             <TopTab label="Dashboard" active={activeTab === 'dashboard'} onClick={() => onTabChange('dashboard')} />
             <TopTab label="Power" active={activeTab === 'power'} onClick={() => onTabChange('power')} />
           </nav>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-4">
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${status.dot}`} />
-            <span className={`text-xs ${status.text}`}>{status.label}</span>
+            <span className={`text-xs ${status.text} hidden sm:inline`}>{status.label}</span>
           </div>
-          <div className="w-8 h-8 rounded-full bg-[#16161a] border border-[#1f1f23] flex items-center justify-center">
+          <div className="w-8 h-8 rounded-full bg-[#16161a] border border-[#1f1f23] items-center justify-center hidden sm:flex">
             <span className="material-symbols-outlined text-[#a1a1aa] text-sm">person</span>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 p-6">
+      <main className="flex-1 p-4 sm:p-6">
         <div className="max-w-[1600px] mx-auto space-y-6">
           {children}
         </div>

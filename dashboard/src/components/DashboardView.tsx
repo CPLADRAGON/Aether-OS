@@ -94,7 +94,7 @@ export default function DashboardView({
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-6">
         <KPICard
           icon="thermostat"
           label="Temperature"
@@ -144,7 +144,7 @@ export default function DashboardView({
       </div>
 
       {latest && stats && (
-        <div className="card p-5">
+        <div className="card p-4 sm:p-5">
           <p className="text-xs text-[#6b7280] mb-3">Sensor Details</p>
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-2">
             <StatChip label="Temp Min" value={`${stats.temp.min.toFixed(1)}°C`} />
@@ -160,32 +160,32 @@ export default function DashboardView({
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-10 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-10 gap-4 sm:gap-6">
         <div className="xl:col-span-7">
-          <div className="card p-6 min-h-[500px] flex flex-col">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+          <div className="card p-4 sm:p-6 flex flex-col">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4 sm:mb-6">
               <h2 className="text-sm font-medium text-[#a1a1aa]">Trend Analysis</h2>
-              <div className="flex items-center gap-2">{periodNavigation}</div>
+              <div className="flex flex-wrap items-center gap-2">{periodNavigation}</div>
             </div>
-            <div className="flex-1 min-h-[350px]">
+            <div className="h-[260px] sm:h-[320px] md:h-[380px]">
               <TrendChart readings={readings} timeRange={timeRange} timeframe={timeframe} />
             </div>
-            <div className="flex gap-6 mt-6 border-t border-[#1f1f23] pt-4 overflow-x-auto">
+            <div className="flex flex-wrap gap-4 sm:gap-6 mt-4 sm:mt-6 border-t border-[#1f1f23] pt-4 overflow-x-auto">
               <LegendItem color="bg-[#818cf8]" label="Temperature (°C)" />
-              <LegendItem color="bg-[#71717a]" label="Humidity (%)" />
-              <LegendItem color="bg-[#52525b]" label="Light (Lux)" />
+              <LegendItem color="bg-[#38bdf8]" label="Humidity (%)" />
+              <LegendItem color="bg-[#facc15]" label="Light (Lux)" />
             </div>
           </div>
         </div>
 
-        <div className="xl:col-span-3 flex flex-col gap-6">
-          <div className="card p-6 min-h-[200px]">
-            <h3 className="text-sm font-medium text-[#a1a1aa] mb-6">Activity</h3>
+        <div className="xl:col-span-3 flex flex-col gap-4 sm:gap-6">
+          <div className="card p-4 sm:p-6">
+            <h3 className="text-sm font-medium text-[#a1a1aa] mb-4 sm:mb-6">Activity</h3>
             <ActivityTimeline events={presenceEvents} formatSGTime={formatSGTime} />
           </div>
 
-          <div className="card p-6 flex flex-col min-h-[250px]">
-            <h3 className="text-sm font-medium text-[#a1a1aa] mb-4">System Logs</h3>
+          <div className="card p-4 sm:p-6 flex flex-col">
+            <h3 className="text-sm font-medium text-[#a1a1aa] mb-3 sm:mb-4">System Logs</h3>
             <SystemLogs logs={logs} formatSGTime={formatSGTime} />
           </div>
         </div>

@@ -1326,7 +1326,8 @@ void runMeasurementFlow(String trigger) {
       totalL += l;
       totalA += acc;
       validCount++;
-      sampleLog += "[T:" + String(t, 1) + " H:" + String(h, 0) + "] ";
+      sampleLog += "[T:" + String(t, 1) + " H:" + String(h, 0) + " L:" + String(l) +
+                   " A:" + String(acc, 2) + "] ";
       drawMeasureSample(i + 1, 5, t, (int)h, l);
     } else {
       sampleLog += "[ERR] ";

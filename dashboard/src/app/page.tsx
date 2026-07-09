@@ -238,20 +238,23 @@ export default function Dashboard() {
   const presenceEvents = useMemo(() => {
     const events: { time: string; label: 'User Out' | 'User Home' }[] = [];
     if (readings.length < 2) return events;
-    const thirtyMinsAgo = new Date();
-    thirtyMinsAgo.setMinutes(thirtyMinsAgo.getMinutes() - 30);
-    const recent = readings.filter((r) => new Date(r.created_at) >= thirtyMinsAgo);
-    if (recent.length < 5) return events;
-    let currentState = 'Home';
-    for (let i = 5; i < recent.length; i++) {
-      const past = recent[i - 5];
-      const current = recent[i];
+    // Compare each reading to the previous one (not a fixed time window) so this
+    // works regardless of the device's sleep interval (5/15/30/60 min) — a 30-min
+    // rolling window with a "need 5+ samples" gate almost never fires once the
+    // interval exceeds ~5 minutes.
+    // LDR polarity: bright room = LOW reading, dark room = HIGH reading (see
+    // firmware ROOM_LDR_BRIGHT_MAX/ROOM_LDR_DARK_MIN). So leaving (lights off)
+    // pushes LDR UP; arriving (lights on) pushes LDR DOWN.
+    let currentState: 'Home' | 'Out' = 'Home';
+    for (let i = 1; i < readings.length; i++) {
+      const past = readings[i - 1];
+      const current = readings[i];
       const ldrChange = (current.ldr_value - past.ldr_value) / Math.max(1, past.ldr_value);
       const humChange = current.humidity - past.humidity;
-      if (ldrChange <= -0.5 && humChange <= -0.5 && currentState !== 'Out') {
+      if ((ldrChange >= 0.4 || humChange <= -3) && currentState !== 'Out') {
         events.push({ time: current.created_at, label: 'User Out' });
         currentState = 'Out';
-      } else if (ldrChange >= 0.5 && humChange >= 0.5 && currentState !== 'Home') {
+      } else if ((ldrChange <= -0.4 || humChange >= 3) && currentState !== 'Home') {
         events.push({ time: current.created_at, label: 'User Home' });
         currentState = 'Home';
       }
@@ -295,7 +298,7 @@ export default function Dashboard() {
   }, [timeRange, timeframe, isCurrentPeriod]);
 
   const periodNavigation = (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <div className="flex bg-[#16161a] p-1 rounded-lg border border-[#1f1f23] gap-1">
         <button
           onClick={() => shiftPeriod(-1)}
@@ -360,8 +363,8 @@ export default function Dashboard() {
           <div className="flex items-center gap-4">
             <div>
               <p className="text-xs text-[#6b7280]">System monitoring</p>
-              <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold text-[#f4f4f5]">Environmental Overview</h1>
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <h1 className="text-xl sm:text-2xl font-semibold text-[#f4f4f5]">Environmental Overview</h1>
                 <div className="px-2 py-0.5 bg-[#16161a] border border-[#1f1f23] rounded text-[11px] text-[#6b7280] font-mono">
                   Sync {lastUpdateStr}
                 </div>
