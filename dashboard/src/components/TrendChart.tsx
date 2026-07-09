@@ -24,6 +24,30 @@ interface TrendChartProps {
 
 export default function TrendChart({ readings, timeRange, timeframe }: TrendChartProps) {
   const chartOptions = useMemo(() => {
+    // Centered moving average — smooths raw sensor jitter into a readable
+    // trend line without shifting the curve forward/backward in time (unlike
+    // a trailing average). Window scales with data density: sparse data (few
+    // readings) stays essentially untouched, dense data (week/month/year
+    // views) gets smoothed more so the underlying trend reads clearly instead
+    // of a jittery mess of tiny fluctuations.
+    const windowSize = Math.max(1, Math.min(15, Math.round(readings.length / 40)));
+    const smooth = (values: number[]): number[] => {
+      if (windowSize <= 1) return values;
+      const result: number[] = [];
+      for (let i = 0; i < values.length; i++) {
+        const start = Math.max(0, i - Math.floor(windowSize / 2));
+        const end = Math.min(values.length, i + Math.ceil(windowSize / 2));
+        let sum = 0;
+        for (let j = start; j < end; j++) sum += values[j];
+        result.push(sum / (end - start));
+      }
+      return result;
+    };
+
+    const temps = smooth(readings.map((r) => r.temperature));
+    const hums = smooth(readings.map((r) => r.humidity));
+    const ldrs = smooth(readings.map((r) => r.ldr_value));
+
     const markAreaRanges: any[] = [];
     let startIdx = -1;
     for (let i = 0; i < readings.length; i++) {
@@ -123,7 +147,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           name: 'Temperature',
           type: 'line',
           smooth: true,
-          data: readings.map((r) => [new Date(r.created_at).getTime(), r.temperature]),
+          data: readings.map((r, i) => [new Date(r.created_at).getTime(), temps[i]]),
           itemStyle: { color: '#818cf8' },
           lineStyle: { width: 2.5 },
           showSymbol: false,
@@ -137,13 +161,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           type: 'line',
           smooth: true,
           yAxisIndex: 1,
-          areaStyle: {
-            color: {
-              type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(56,189,248,0.15)' }, { offset: 1, color: 'rgba(56,189,248,0)' }],
-            },
-          },
-          data: readings.map((r) => [new Date(r.created_at).getTime(), r.humidity]),
+          data: readings.map((r, i) => [new Date(r.created_at).getTime(), hums[i]]),
           itemStyle: { color: '#38bdf8' },
           lineStyle: { width: 2 },
           showSymbol: false,
@@ -151,17 +169,11 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         {
           name: 'Light',
           type: 'line',
-          step: 'end',
+          smooth: true,
           yAxisIndex: 2,
-          data: readings.map((r) => [new Date(r.created_at).getTime(), r.ldr_value]),
+          data: readings.map((r, i) => [new Date(r.created_at).getTime(), ldrs[i]]),
           itemStyle: { color: '#facc15' },
           lineStyle: { width: 1.5, opacity: 0.85 },
-          areaStyle: {
-            color: {
-              type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [{ offset: 0, color: 'rgba(250,204,21,0.12)' }, { offset: 1, color: 'rgba(250,204,21,0)' }],
-            },
-          },
           showSymbol: false,
         },
       ],
