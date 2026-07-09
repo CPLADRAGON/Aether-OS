@@ -29,6 +29,8 @@ enum Icon : uint8_t {
     ICON_LED_LG,
     ICON_INTERVAL_LG,
     ICON_STATS_LG,
+    ICON_ROOM_LG,
+    ICON_TREND_LG,
     ICON_WIFIMENU_LG,
     ICON_RESET_LG,
     ICON_SLEEP_LG,
