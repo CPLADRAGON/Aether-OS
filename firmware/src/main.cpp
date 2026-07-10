@@ -112,7 +112,15 @@ DeviceConfig config;
 LogQueue logQueue;
 TrendHistory trendHistory;
 uint32_t sessionStartTime = 0; // Relative (millis) or Absolute (UTC)
-bool timeSynced = false;
+// Whether NTP has already been synced since the last cold boot/power-cycle.
+// RTC_DATA_ATTR keeps this in the RTC memory domain, which -- like the
+// ESP32's internal time-of-day clock itself -- survives deep sleep (only
+// the main RAM/digital domain powers down between wake cycles). Once NTP
+// has succeeded once, the clock keeps ticking correctly across every
+// subsequent deep-sleep wake with zero further WiFi/NTP cost; only a true
+// power-cycle (reset/reflash/battery pull) requires a fresh sync. Wired up
+// in showTimePage() to skip its WiFi+NTP resync when this is already true.
+RTC_DATA_ATTR bool timeSynced = false;
 
 uint32_t calculateCRC(WiFiSnapshot *s) {
   uint32_t originalCrc = s->crc;
@@ -181,6 +189,16 @@ void loadConfig() {
   }
 }
 
+// Appends this wake cycle's own session-runtime entry to the local queue.
+// Called from enterDeepSleep(), i.e. AFTER runMeasurementFlow() (auto or
+// manual) has already attempted to flush any PREVIOUSLY queued entries to
+// Supabase's device_sessions table (see the "[UPLOAD] device_sessions"
+// log line in that flow). So "Total in queue" here reflects the state
+// right after that flush attempt, plus this cycle's new entry -- if it's
+// consistently stuck at 10 (the hard cap, oldest entries silently dropped
+// via FIFO overwrite below), the device_sessions sync is failing every
+// cycle; check the "[UPLOAD] device_sessions" HTTP code/error body logged
+// in runMeasurementFlow() to see why.
 void appendSessionLog(uint32_t start, uint16_t dur) {
   preferences.begin("logs_v2", false);
   preferences.getBytes("queue", &logQueue, sizeof(LogQueue));
@@ -1306,27 +1324,48 @@ void showTimePage() {
     return;
   }
 
-  if (!ensureWiFi()) {
-    currentState = SS_MENU;
-    return;
-  }
-  currentState = SS_CONNECTING;
-  uiLine1 = "NTP SYNC...";
-
+  // Timezone setup is local-only (locOffset was already loaded from NVS at
+  // boot) -- cheap enough to always redo unconditionally regardless of
+  // whether a fresh NTP sync is needed below. newlib's TZ env state doesn't
+  // survive deep sleep (unlike RTC_DATA_ATTR globals or the RTC clock
+  // itself), so this can't be skipped even when timeSynced is true.
   long tzHours = locOffset / 3600;
   String tzString =
       "UTC" + String(tzHours > 0 ? "-" : "+") + String(abs(tzHours));
-  configTime(locOffset, 0, "pool.ntp.org");
   setenv("TZ", tzString.c_str(), 1);
   tzset();
 
+  // Skip the WiFi connect + NTP round-trip entirely once time has already
+  // been synced this power cycle -- the ESP32's internal RTC clock keeps
+  // ticking correctly across deep sleep on its own (only the digital/RAM
+  // domain powers down between wake cycles), so getLocalTime() below
+  // already returns accurate time with zero network cost. Previously this
+  // resynced on EVERY single visit to this screen, which is why entering
+  // Time often felt slow -- a full WiFi handshake + up to 5s of NTP polling
+  // every time, even seconds after the exact same sync had just succeeded.
   struct tm tinfo;
-  int retries = 0;
-  while (!getLocalTime(&tinfo) && retries < 10) {
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    retries++;
+  if (!timeSynced) {
+    if (!ensureWiFi()) {
+      currentState = SS_MENU;
+      return;
+    }
+    currentState = SS_CONNECTING;
+    uiLine1 = "NTP SYNC...";
+
+    configTime(locOffset, 0, "pool.ntp.org");
+
+    int retries = 0;
+    while (!getLocalTime(&tinfo) && retries < 10) {
+      vTaskDelay(500 / portTICK_PERIOD_MS);
+      retries++;
+    }
+    currentState = SS_MENU;
+    // Only mark synced on genuine success -- if NTP never responded, leave
+    // timeSynced false so the NEXT visit retries the full sync instead of
+    // silently displaying whatever garbage/epoch time getLocalTime() left
+    // behind.
+    if (retries < 10) timeSynced = true;
   }
-  currentState = SS_MENU;
 
   unsigned long start = millis();
   String cleanCity = String(locCity);
@@ -1559,12 +1598,25 @@ void runMeasurementFlow(String trigger) {
             String sessionBody;
             serializeJson(sessionDoc, sessionBody);
             int sessCode = http.POST(sessionBody);
+            // NOTE: this log line didn't exist before -- the queue count
+            // reported by appendSessionLog() ("Total in queue: N") only
+            // reflects whether THIS sync attempt succeeded, but gave no
+            // visibility into WHY it might be failing (silently stuck at
+            // the 10-entry cap, oldest entries quietly dropped via FIFO
+            // overwrite). Logging the HTTP code (and body on failure)
+            // makes that diagnosable instead of a silent mystery.
+            Serial.printf("[UPLOAD] device_sessions HTTP %d (%d queued)\n",
+                          sessCode, logQueue.count);
             if (sessCode >= 200 && sessCode < 300) {
               logQueue.count = 0;
               preferences.begin("logs_v2", false);
               preferences.putBytes("queue", &logQueue, sizeof(LogQueue));
               preferences.end();
+            } else {
+              Serial.println("[UPLOAD] device_sessions error body: " + http.getString());
             }
+          } else {
+            Serial.println("[UPLOAD] device_sessions http.begin() failed");
           }
         }
       }
@@ -2384,7 +2436,10 @@ void enterDeepSleep() {
       vTaskDelay(50 / portTICK_PERIOD_MS);
     }
 
-    // Phase 2: moon shrinks to a point, brief flash, black.
+    // Phase 2: moon shrinks to a point, then fades to black (no flash --
+    // an earlier version had a one-frame full-screen white flash here to
+    // mimic a CRT-TV power-off effect, but it read as jarring on real
+    // hardware, so it's been removed in favour of just settling to black).
     for (int i = 0; i <= SHRINK_FRAMES; i++) {
       if (!dm::beginFrame(portMAX_DELAY)) break;
       dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "SLEEP", false, dm::ICON_WIFI);
@@ -2392,9 +2447,6 @@ void enterDeepSleep() {
       if (r > 0) {
         dm::drawFilledCircle(moonX, moonY, r);
         dm::clearCircle(moonX + r / 2, moonY - r / 3, (int)(r * 0.85f));
-      }
-      if (i == SHRINK_FRAMES) {
-        dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, OLED_H);
       }
       dm::endFrame();
       vTaskDelay(50 / portTICK_PERIOD_MS);
