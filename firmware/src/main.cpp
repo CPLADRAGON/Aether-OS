@@ -469,7 +469,6 @@ bool oledFound = false;
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmm, const char *day, int hour24);
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
-static void drawHeroTemp(int x, int yTop, int maxWidthPx, float tempC);
 
 // Maps OpenWeatherMap's weather[0].main field to an icon. That field is
 // always one of a fixed set of capitalized-mixed-case strings (see
@@ -1768,32 +1767,41 @@ static void drawColumnValue(int colX, int colW, int topY,
 }
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
-  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "WEATHER", false, dm::ICON_WIFI);
 
+  // No header on this screen -- matches the Time screen's layout: a small
+  // icon row at the very top, huge hero value below it, divider, info
+  // strip. This frees enough width for the full "31.5C" decimal value at
+  // FONT_LARGE (10px/char x 5 chars = 50px, comfortably fits the 64px
+  // panel once nothing else shares the row) -- the previous icon-left/
+  // hero-right split only left ~32px for the value, which couldn't fit
+  // FONT_LARGE at all.
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
   char humBuf[6];
   snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
-  // Icon left, vertically centred in the content area (y=12..47, 36px tall,
-  // no footer on this screen -- the icon now conveys condition instead of
-  // the old inverted-bar text label).
-  int iconX = OLED_OFFSET_X + 3;
-  int iconY = OLED_OFFSET_Y + 12 + (36 - 24) / 2;
-  dm::drawIcon24(iconX, iconY, conditionIcon);
+  // Icon shrunk from its native 24x24 to ~12x12 (0.5 scale) via
+  // drawIconScaled() -- no separate small-icon asset needed, it reuses the
+  // same bitmap. Centred in its own slim top row, matching the Time
+  // screen's proportions for its procedural sun/moon icon.
+  dm::drawIconScaled(OLED_OFFSET_X + OLED_W / 2, OLED_OFFSET_Y + 7,
+                      conditionIcon, 0.5f);
 
-  // Stats stacked right: hero temp line, secondary humidity line below it.
-  // Text is drawn with setFontPosTop() in effect (see display_manager.cpp),
-  // so these y-values are the TOP of each glyph, not its baseline -- top +
-  // font height must stay within the 48px panel. drawHeroTemp() picks the
-  // widest font that fits a decimal-precision value in this ~32px column
-  // (FONT_LARGE's 10px/char cannot fit "31.5C"'s 5 characters here); at its
-  // largest (FONT_MEDIUM, 13px tall) landing at y=14 still ends well clear
-  // of the humidity line at y=36.
-  int rightX = OLED_OFFSET_X + 32;
-  drawHeroTemp(rightX, OLED_OFFSET_Y + 14, OLED_W - rightX, tempC);
+  char tempBuf[8];
+  snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
+  dm::setFont(dm::FONT_LARGE);
+  int tempW = dm::textWidth(tempBuf);
+  int tempX = OLED_OFFSET_X + (OLED_W - tempW) / 2;
+  if (tempX < 0) tempX = 0;
+  dm::drawText(tempX, OLED_OFFSET_Y + 14, tempBuf);
+
+  // Thin divider separating the huge temp from the info strip below,
+  // matching drawClockScreen()'s identical treatment.
+  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 37, OLED_W - 4);
+
   dm::setFont(dm::FONT_SMALL);
-  dm::drawText(rightX, OLED_OFFSET_Y + 36, humBuf);
+  int humW = dm::textWidth(humBuf);
+  dm::drawText(OLED_OFFSET_X + (OLED_W - humW) / 2, OLED_OFFSET_Y + 39, humBuf);
 
   dm::endFrame();
 }
@@ -1884,37 +1892,7 @@ static void buildLightLabel(char *out, size_t outSize, int maxWidthPx,
   snprintf(out, outSize, "%d", lux);
 }
 
-// Draws a decimal-precision hero temperature ("31.5C") at the given
-// Draws a decimal-precision hero temperature ("31.5C") at the given
-// top-left position, auto-fitting the widest font that stays within
-// maxWidthPx (measured with the REAL font metrics via dm::textWidth(), not
-// assumed char counts -- same philosophy as buildLightLabel() above). The
-// "C" unit is ALWAYS shown -- earlier drafts tried a middle tier that
-// dropped it to fit FONT_MEDIUM, but that's exactly what real hardware
-// showed (the full "31.5C" string doesn't fit FONT_MEDIUM's 32px budget as
-// often as hoped), and a missing unit reads as more broken than a smaller
-// font. Tries, in order:
-//   1. FONT_MEDIUM "31.5C"  (full detail, preferred)
-//   2. FONT_NORMAL "31.5C"  (smaller font, guaranteed to fit, unit intact)
-// Used by screens whose hero temp previously showed a bare whole-degree
-// FONT_LARGE value ("31C") -- FONT_LARGE (10px/char) cannot fit 5 characters
-// in the ~32px column these screens have available, so this steps down to
-// a smaller font rather than truncating the decimal (or its unit) away.
-static void drawHeroTemp(int x, int yTop, int maxWidthPx, float tempC) {
-  if (tempC > 99.9f) tempC = 99.9f;
-  if (tempC < -9.9f) tempC = -9.9f;
 
-  char buf[8];
-  snprintf(buf, sizeof(buf), "%.1fC", tempC);
-  dm::setFont(dm::FONT_MEDIUM);
-  if (dm::textWidth(buf) <= maxWidthPx) {
-    dm::drawText(x, yTop, buf);
-    return;
-  }
-
-  dm::setFont(dm::FONT_NORMAL);
-  dm::drawText(x, yTop, buf);
-}
 
 static void drawMeasureSample(int sampleIdx, int totalSamples,
                               float tempC, int humPct, int lux) {
@@ -2154,21 +2132,15 @@ void showStatsPage() {
 // ROOM: instant local DHT11+LDR snapshot, no WiFi/upload, no history append
 // (kept separate from the quality-checked 5-sample MEASURE average).
 //
-// Main view -- matches drawWeatherScreen()'s exact layout (icon left, hero
-// temp + secondary humidity right, full 36px content area, no footer). The
-// comfort tag that used to live in a footer here has moved to
-// drawRoomStatusDetail() (the "Room Status" subpage, reached by short tap);
-// a small ">" chevron in the bottom-right corner hints that it's available.
+// Main view -- matches drawWeatherScreen()'s icon-above/hero-below layout.
+// The comfort tag breakdown lives in drawRoomStatusDetail() (the "Room
+// Status" subpage, reached by short tap); the light-level tag doubles as
+// the tap-for-detail affordance here (see the trailing ">" appended to it
+// below) since there's no separate header corner slot in this layout to
+// host a standalone chevron anymore.
 static void drawRoomStatus(float tempC, int humPct, int lux,
                            const char *lightTag) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
-  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "ROOM", false, dm::ICON_WIFI);
-
-  // Light-level tag in place of the WiFi icon slot (ROOM makes no network
-  // calls, so the WiFi indicator would be misleading here).
-  dm::setFont(dm::FONT_SMALL);
-  int ltw = dm::textWidth(lightTag);
-  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - ltw - 2, OLED_OFFSET_Y + 2, lightTag);
 
   int humPctClamped = humPct;
   if (humPctClamped > 99) humPctClamped = 99;
@@ -2176,29 +2148,33 @@ static void drawRoomStatus(float tempC, int humPct, int lux,
   char humBuf[6];
   snprintf(humBuf, sizeof(humBuf), "%d%%", humPctClamped);
 
-  // Icon left, vertically centred in the full 36px content area (y=12..47,
-  // no footer) -- same positions as drawWeatherScreen() since the content
-  // area is now identically sized.
-  int iconX = OLED_OFFSET_X + 3;
-  int iconY = OLED_OFFSET_Y + 12 + (36 - 24) / 2;
-  dm::drawIcon24(iconX, iconY, dm::ICON_ROOM_LG);
+  // Icon shrunk to ~12x12 via drawIconScaled(), centred in its own top row
+  // -- see drawWeatherScreen()'s identical treatment/comment.
+  dm::drawIconScaled(OLED_OFFSET_X + OLED_W / 2, OLED_OFFSET_Y + 7,
+                      dm::ICON_ROOM_LG, 0.5f);
 
-  // drawHeroTemp() auto-fits a decimal-precision value into this ~32px
-  // column -- see drawWeatherScreen()'s identical usage/comment.
-  int rightX = OLED_OFFSET_X + 32;
-  drawHeroTemp(rightX, OLED_OFFSET_Y + 14, OLED_W - rightX, tempC);
-  dm::setFont(dm::FONT_SMALL);
-  dm::drawText(rightX, OLED_OFFSET_Y + 36, humBuf);
+  char tempBuf[8];
+  snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
+  dm::setFont(dm::FONT_LARGE);
+  int tempW = dm::textWidth(tempBuf);
+  int tempX = OLED_OFFSET_X + (OLED_W - tempW) / 2;
+  if (tempX < 0) tempX = 0;
+  dm::drawText(tempX, OLED_OFFSET_Y + 14, tempBuf);
 
-  // Chevron indicator hinting at the Room Status subpage (short tap toggles
-  // to it). Uses plain ">" rather than a real "▸" glyph -- this codebase
-  // avoids non-ASCII characters in OLED text (same reasoning as avoiding a
-  // real "°" degree symbol elsewhere: no confirmed glyph support in this
-  // font, ASCII is a safe bet).
+  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 37, OLED_W - 4);
+
+  // Info strip: humidity left, light tag + chevron right -- mirrors
+  // drawClockScreen()'s day/date split. The trailing ">" on the light tag
+  // is the tap-for-Status-subpage affordance (short tap toggles to
+  // drawRoomStatusDetail()); plain ASCII ">" rather than a real "▸" glyph,
+  // same reasoning as elsewhere in this file (no confirmed glyph support
+  // for non-ASCII characters in this font).
   dm::setFont(dm::FONT_SMALL);
-  const char *chevron = ">";
-  int chW = dm::textWidth(chevron);
-  dm::drawText(OLED_OFFSET_X + OLED_W - chW - 3, OLED_OFFSET_Y + OLED_H - 9, chevron);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 39, humBuf);
+  char tagBuf[10];
+  snprintf(tagBuf, sizeof(tagBuf), "%s>", lightTag);
+  int tagW = dm::textWidth(tagBuf);
+  dm::drawText(OLED_OFFSET_X + OLED_W - tagW - 2, OLED_OFFSET_Y + 39, tagBuf);
 
   dm::endFrame();
 }

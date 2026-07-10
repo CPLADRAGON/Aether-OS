@@ -12,9 +12,6 @@ namespace dm {
 enum Font : uint8_t {
     FONT_SMALL,   // ~5x7, header / footnotes
     FONT_NORMAL,  // ~6x10, body / menus (matches Adafruit default cell)
-    FONT_MEDIUM,  // ~8x13, hero values that need more width than FONT_LARGE
-                  // allows (e.g. a decimal-precision temperature) without
-                  // dropping all the way down to FONT_NORMAL
     FONT_LARGE,   // ~10x20, values / spinner (matches Adafruit size 2)
     FONT_HUGE     // ~19x28, clock digits (numeric only)
 };
