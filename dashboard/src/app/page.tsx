@@ -64,8 +64,6 @@ export default function Dashboard() {
   const [oldestDate, setOldestDate] = useState<Date | null>(null);
   const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'online' | 'offline'>('connecting');
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
-  const [useCompare, setUseCompare] = useState(false);
-  const [prevReadings, setPrevReadings] = useState<Reading[]>([]);
 
   // Time range calculation
   const timeRange = useMemo(() => {
@@ -133,23 +131,6 @@ export default function Dashboard() {
       setLoading(false);
       setInitialLoad(false);
 
-      // Compare mode: fetch the equivalent prior period
-      if (useCompare) {
-        const periodMs = timeRange.end.getTime() - timeRange.start.getTime();
-        const prevEnd = new Date(timeRange.start.getTime() - 1);
-        const prevStart = new Date(prevEnd.getTime() - periodMs);
-        const { data: prevData } = await supabase
-          .from('room_readings')
-          .select('*')
-          .gte('created_at', prevStart.toISOString())
-          .lte('created_at', prevEnd.toISOString())
-          .order('created_at', { ascending: true })
-          .limit(1000);
-        setPrevReadings(prevData ?? []);
-      } else {
-        setPrevReadings([]);
-      }
-
       const { data: logsData } = await supabase
         .from('device_logs')
         .select('*')
@@ -163,7 +144,7 @@ export default function Dashboard() {
         const { data: sessionsData } = await supabase
           .from('device_sessions')
           .select('*')
-          .gte('synced_at', new Date(timeRange.start.getTime() - 24 * 60 * 60 * 1000).toISOString()) // fetch a day before start to catch timezone edge cases
+          .gte('synced_at', new Date(timeRange.start.getTime() - 24 * 60 * 60 * 1000).toISOString())
           .lte('synced_at', timeRange.end.toISOString())
           .order('synced_at', { ascending: false })
           .limit(5000);
@@ -171,7 +152,7 @@ export default function Dashboard() {
       }
     };
     doFetch();
-  }, [timeRange, activeTab, useCompare]);
+  }, [timeRange, activeTab]);
 
   // Init: oldest date + realtime subscriptions
   useEffect(() => {
@@ -427,9 +408,6 @@ export default function Dashboard() {
             comfortScore={comfortScore}
             displayData={displayData}
             periodNavigation={periodNavigation}
-            useCompare={useCompare}
-            onToggleCompare={() => setUseCompare(v => !v)}
-            prevReadings={prevReadings}
           />
         </div>
       )}

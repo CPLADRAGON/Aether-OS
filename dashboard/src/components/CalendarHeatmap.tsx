@@ -95,7 +95,7 @@ export default function CalendarHeatmap({ readings }: CalendarHeatmapProps) {
   const dayLabels = ['M', '', 'W', '', 'F', '', 'S'];
 
   return (
-    <div className="card p-4 sm:p-5">
+    <div className="card p-4 sm:p-5 w-fit max-w-full">
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <p className="text-xs text-[#6b7280]">Comfort heatmap ({new Date().getFullYear()})</p>
         <div className="flex items-center gap-1.5 shrink-0">
@@ -108,8 +108,8 @@ export default function CalendarHeatmap({ readings }: CalendarHeatmapProps) {
       </div>
 
       {/* Scrollable — 52+ columns × ~14px each needs horizontal scroll on phone */}
-      <div className="overflow-x-auto -mx-1 px-1 pb-1">
-        <div className="flex gap-0.5" style={{ minWidth: `${weeks.length * 14}px` }}>
+      <div className="overflow-x-auto pb-1">
+        <div className="flex gap-0.5 w-max">
           {/* Day-of-week labels */}
           <div className="flex flex-col gap-0.5 pt-4 mr-0.5 shrink-0">
             {dayLabels.map((d, i) => (
