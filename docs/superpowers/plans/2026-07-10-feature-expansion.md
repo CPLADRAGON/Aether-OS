@@ -1,5 +1,165 @@
 # Aether-OS Feature Expansion Plan
-## Features: Alarm Timer · Offline Queue · Calendar Heatmap · Compare Mode · PWA
+## Features: PWA · Offline Queue · Alarm Timer · Calendar Heatmap · Compare Mode
+## + Immediate UI Fixes (progress bar, weather empty)
+
+---
+
+## Immediate fixes (small, do first)
+
+### Fix A — Time Detail: progress bar always appears 100% full
+Root cause (verified): the current code draws three full-width white
+`dm::drawHLine` calls first (filling the entire bar white), then
+`dm::drawFilledRect` for the filled portion — also white. Both portions
+are white pixels. The unfilled section looks filled.
+
+Fix: use `dm::drawRect()` (outline frame only, interior stays black) then
+`dm::drawFilledRect` for just the filled interior pixels.
+
+### Fix B — Weather main screen: add feels-like temp + tap indicator
+Condition label is already in the detail subpage. Better additions:
+1. **Feels-like temperature** — extracted from `doc["main"]["feels_like"]`
+   (same API call). Show as "FEELS 29.2C" in FONT_SMALL, centred below
+   the temperature.
+2. **">" tap indicator** bottom-right corner — guides user to detail subpage
+   (same affordance as Room screen).
+
+`drawWeatherScreen()` gains a `float feelsLike` parameter. Temperature
+shifts up from y=19 to y=15. Feels-like at y=37, tap indicator at y=41.
+
+---
+
+## 1. PWA Support (dashboard)
+
+**Files:**
+- `dashboard/public/manifest.json` — `name`, `short_name`, `display:
+  standalone`, `theme_color: #0d0d0f`, `background_color: #0d0d0f`, icons
+- `dashboard/public/icon-192.png`, `icon-512.png` — simple generated SVG
+  converted to PNG (A glyph + dark background, Aether brand colours)
+- `dashboard/src/app/layout.tsx` — add `<link rel="manifest">` inside
+  `<head>` and `<meta name="theme-color">`, plus Apple PWA meta tags
+  (`apple-mobile-web-app-capable`, `apple-touch-icon`)
+- No service worker needed for v1 (just installability); can add caching
+  later via `next-pwa` if desired
+
+---
+
+## 2. Offline Reading Queue (firmware)
+
+**What:** When `ensureWiFi()` fails after a measurement, currently the
+averaged sensor data is silently discarded. Queue it locally (up to 20
+entries) and flush on the next successful upload.
+
+**New structs:**
+```cpp
+struct __attribute__((packed)) OfflineReading {
+  uint32_t timestamp;   // UTC epoch
+  int16_t  tempX10;     // temp * 10
+  uint8_t  humidity;    // 0-100
+  uint16_t ldrRaw;      // raw ADC
+  uint16_t lux;         // estimated lux
+  float    accel;       // accel total
+};
+struct __attribute__((packed)) OfflineQueue {
+  uint8_t version = 1;
+  uint8_t count = 0;    // 0-20
+  OfflineReading entries[20];
+};
+```
+
+NVS namespace: `offline_v1`
+
+**New functions:**
+- `appendOfflineReading(float temp, float hum, int ldrRaw, int lux, float accel, uint32_t ts)` — queues entry, FIFO-overwrites oldest at cap
+- `flushOfflineQueue(WiFiClientSecure&, HTTPClient&)` — posts all queued entries as a JSON array to `room_readings` endpoint; clears on HTTP 2xx
+
+**Changes to `runMeasurementFlow()`:**
+1. WiFi-fail path (currently: show error + return): instead call
+   `appendOfflineReading(...)` before returning, show "QUEUED" on OLED
+2. WiFi-success path: call `flushOfflineQueue()` BEFORE the current
+   reading upload; if flush partially fails (e.g. some entries), keep
+   un-flushed entries
+
+**Device ID**: offline readings need `device_id` -- already defaults to
+`"esp32_01"` in Supabase schema.
+
+---
+
+## 3. Alarm / Countdown Timer (firmware)
+
+**What:** New TIMER menu item. User sets a preset duration (5/10/15/25/30
+min) via short press cycling, starts via long press. Timer state persists
+across deep sleep via `RTC_DATA_ATTR`. On expiry, LED flashes + OLED shows
+a TIMER DONE screen.
+
+**New globals (RTC_DATA_ATTR):**
+- `bool timerActive = false`
+- `time_t timerEndEpoch = 0` (UTC seconds)
+
+**New functions:**
+- `showTimerPage()` — page controller: displays preset selector, then
+  countdown once started
+- `drawTimerScreen(int secsRemaining, int totalSecs)` — shows MM:SS large,
+  a fill-bar showing progress, "HOLD TO START/CANCEL"
+- `drawTimerDone()` — full-screen notification, LED flash loop until
+  dismissed by button press
+
+**Menu integration:**
+- `PAGE_TIMER` added after `PAGE_TREND` in `MenuPage` enum
+- New icon: reuse `ICON_INTERVAL_LG` (hourglass/clock concept)
+- Timer expired check in `monitorTask` startup: if `timerActive && time_now >= timerEndEpoch`, show done screen before entering normal menu loop
+- Requires `locationSynced` to be true (needs UTC time); show locked screen otherwise (same pattern as Clock screen)
+
+---
+
+## 4. Calendar Heatmap (dashboard)
+
+**What:** A 3-month day grid below the Sensor Details section showing daily
+average comfort score (colour-coded, GitHub-contribution-style). Each cell
+is a square coloured on a 5-level scale from neutral → best comfort.
+
+**New component:** `dashboard/src/components/CalendarHeatmap.tsx`
+- Props: `readings: Reading[]`
+- Derives daily averages client-side from the existing readings array (the
+  "month"/"year" timeframe fetches already have sufficient data; "day/week"
+  will show a rolling 30-day window regardless of timeframe selector)
+- Color scale: 5 levels mapped to the existing indigo palette:
+  `#1f1f23` (no data) → `#312e81` → `#4338ca` → `#6366f1` → `#818cf8`
+- Tooltip on hover: date + comfort score + avg temp/humidity
+- Layout: 3-month grid, weeks as columns, days as rows
+
+**Integration:** New card in `DashboardView.tsx` between the Sensor Details
+stat chips and the Trend Analysis card.
+
+---
+
+## 5. Compare Mode (dashboard)
+
+**What:** A "Compare" toggle button in the Trend Analysis card header.
+When active, fetches the equivalent prior period and overlays it as dashed
+semi-transparent lines behind the solid current-period lines.
+
+**Changes:**
+- `page.tsx`: `const [useCompare, setUseCompare] = useState(false)` +
+  second Supabase query for `[prevStart, prevEnd]` inside `doFetch` when
+  `useCompare` is true, stored in `prevReadings: Reading[]`
+- `DashboardView.tsx`: accept optional `prevReadings` prop + toggle button
+  alongside period navigation ("⧉ Compare" icon button)
+- `TrendChart.tsx`: accept optional `prevReadings` prop; when present, add
+  3 extra series with `lineStyle: { type: 'dashed', opacity: 0.35 }` using
+  the same y-axes, time-shifted so the prior period aligns visually with
+  the current period (shift by `currentStart - prevStart` ms)
+
+---
+
+## Execution order
+
+Fix A, Fix B → immediate (pre-feature cleanup)
+1. PWA → XS, dashboard-only
+2. Offline queue → S, firmware-only
+3. Alarm timer → M, firmware-only
+4. Calendar heatmap → M, dashboard-only
+5. Compare mode → M, dashboard-only
+
 
 ---
 

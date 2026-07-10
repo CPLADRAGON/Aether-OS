@@ -472,7 +472,7 @@ static void drawTimeDetail(const char *hh, const char *mm, const char *ss,
                            const char *ddmmm, const char *dayShort,
                            int year, int weekNum, int dayOfYear,
                            int hour24, int minVal, int secVal);
-static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
+static void drawWeatherScreen(float tempC, int humPct, float feelsLike, dm::Icon conditionIcon);
 static void drawWeatherDetail(float tempC, int humPct, dm::Icon conditionIcon,
                               const char *conditionLabel);
 
@@ -1446,6 +1446,7 @@ void showWeatherPage() {
   uiLine3 = "";
 
   float temp = 0;
+  float feelsLike = 0;
   int hum = 0;
   dm::Icon icon = dm::ICON_WEATHER_LG;
   const char *label = "CLOUDY";
@@ -1466,6 +1467,7 @@ void showWeatherPage() {
       JsonDocument doc;
       deserializeJson(doc, http.getString());
       temp = doc["main"]["temp"].as<float>();
+      feelsLike = doc["main"]["feels_like"].as<float>();
       hum = doc["main"]["humidity"].as<int>();
       String main = doc["weather"][0]["main"].as<String>();
       icon = resolveWeatherIcon(main);
@@ -1481,6 +1483,7 @@ void showWeatherPage() {
   }
 #else
   temp = 30.5f;
+  feelsLike = 34.2f;
   hum = 68;
   icon = dm::ICON_WEATHER_SUN_LG;
   label = "SUNNY";
@@ -1509,7 +1512,7 @@ void showWeatherPage() {
     if (showingDetail) {
       drawWeatherDetail(temp, hum, icon, label);
     } else {
-      drawWeatherScreen(temp, hum, icon);
+      drawWeatherScreen(temp, hum, feelsLike, icon);
     }
 
     bool longPress = false;
@@ -1831,16 +1834,17 @@ static void drawTimeDetail(const char *hh, const char *mm, const char *ss,
   int pw = dm::textWidth(pctBuf);
   dm::drawText(OLED_OFFSET_X + OLED_W - pw - 2, OLED_OFFSET_Y + 34, pctBuf);
 
-  // Filled bar at the bottom, 3px tall.
+  // Progress bar: outline rect (interior stays black = unfilled portion),
+  // filled interior rect for the filled portion only. The previous version
+  // drew three full-width drawHLine calls first (all white), making the
+  // entire bar appear 100% full regardless of dayPct.
   int barX = OLED_OFFSET_X + 2;
   int barW = OLED_W - 4;
   int barY = OLED_OFFSET_Y + 43;
-  dm::drawHLine(barX, barY, barW);
-  dm::drawHLine(barX, barY + 1, barW);
-  dm::drawHLine(barX, barY + 2, barW);
+  dm::drawRect(barX, barY, barW, 3);          // 1px border, interior = black
   int fill = (barW * dayPct) / 100;
-  if (fill > 0) {
-    dm::drawFilledRect(barX, barY, fill, 3);
+  if (fill > 1) {
+    dm::drawFilledRect(barX + 1, barY + 1, fill - 1, 1); // 1px tall interior fill
   }
 
   dm::endFrame();
@@ -1874,7 +1878,7 @@ static void drawColumnValue(int colX, int colW, int topY,
   if (vx < colX) vx = colX;
   dm::drawText(vx, topY + VALUE_Y_OFFSET, value);
 }
-static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
+static void drawWeatherScreen(float tempC, int humPct, float feelsLike, dm::Icon conditionIcon) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
 
   if (humPct > 99) humPct = 99;
@@ -1882,31 +1886,39 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   char humBuf[6];
   snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
-  // Inverted header (10px): small weather icon on the left (~8x8 at
-  // 0.33 scale), humidity text right-aligned. Moving humidity up into the
-  // header frees the entire body for the temperature hero, making it
-  // noticeably larger and better-spaced than putting humidity in a footer
-  // strip and squeezing the temperature into a narrower vertical zone.
+  // Inverted header (10px): small weather icon left (~8px at 0.33 scale)
+  // + humidity right-aligned.
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10);
-  // Icon center: x=7, y=5 so the ~8px icon sits within the 10px header
-  // (center ± 4px = y=1..9). Using 0.33 scale instead of the previous
-  // 0.5 (12px) to fit within the header height without overflowing.
   dm::drawIconScaled(OLED_OFFSET_X + 7, OLED_OFFSET_Y + 5,
                       conditionIcon, 0.33f);
   dm::setFont(dm::FONT_SMALL);
   int humW = dm::textWidth(humBuf);
   dm::drawTextInverted(OLED_OFFSET_X + OLED_W - humW - 2, OLED_OFFSET_Y + 2, humBuf);
 
-  // Temperature centred in the full 38px body (y=10..47). FONT_LARGE is
-  // 20px tall, so the vertical centre lands at y = 10 + (38-20)/2 = 19,
-  // giving ~9px breathing room both above and below.
+  // Main temperature, shifted up from y=19 to y=15 to leave room for
+  // the feels-like secondary line below.
   char tempBuf[8];
   snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
   dm::setFont(dm::FONT_LARGE);
   int tempW = dm::textWidth(tempBuf);
   int tempX = OLED_OFFSET_X + (OLED_W - tempW) / 2;
   if (tempX < 0) tempX = 0;
-  dm::drawText(tempX, OLED_OFFSET_Y + 19, tempBuf);
+  dm::drawText(tempX, OLED_OFFSET_Y + 15, tempBuf);
+
+  // Feels-like temperature: "FEELS 29.2C", centred. Provides useful context
+  // the detail subpage doesn't show (it shows icon + condition label, not
+  // feels-like). Extracted from the same API call.
+  char feelsBuf[14];
+  snprintf(feelsBuf, sizeof(feelsBuf), "FEELS %.1fC", feelsLike);
+  dm::setFont(dm::FONT_SMALL);
+  int feelsW = dm::textWidth(feelsBuf);
+  dm::drawText(OLED_OFFSET_X + (OLED_W - feelsW) / 2, OLED_OFFSET_Y + 37, feelsBuf);
+
+  // ">" tap indicator: guides user to the detail subpage (same affordance
+  // as Room screen's bottom-right chevron).
+  const char *chevron = ">";
+  int chW = dm::textWidth(chevron);
+  dm::drawText(OLED_OFFSET_X + OLED_W - chW - 2, OLED_OFFSET_Y + 41, chevron);
 
   dm::endFrame();
 }
