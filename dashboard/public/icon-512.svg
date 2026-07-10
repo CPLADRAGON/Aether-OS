@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#0d0d0f" rx="76"/>
+  <!-- Stylised 'A' for Aether with indigo accent -->
+  <polygon points="256,96 394,408 352,408 256,180 160,408 118,408" fill="#818cf8"/>
+  <rect x="182" y="320" width="148" height="32" fill="#818cf8"/>
+</svg>
