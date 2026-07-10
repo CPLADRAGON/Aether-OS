@@ -21,6 +21,7 @@ interface TrendChartProps {
   readings: Reading[];
   timeRange: { start: Date; end: Date };
   timeframe: 'day' | 'week' | 'month' | 'year';
+  prevReadings?: Reading[]; // optional previous period for compare mode
 }
 
 // Below this width, the chart drops the Humidity/Light axis LABELS (values
@@ -41,7 +42,7 @@ function useIsMobile(): boolean {
   return isMobile;
 }
 
-export default function TrendChart({ readings, timeRange, timeframe }: TrendChartProps) {
+export default function TrendChart({ readings, timeRange, timeframe, prevReadings = [] }: TrendChartProps) {
   const isMobile = useIsMobile();
   const chartOptions = useMemo(() => {
     // Time-based moving average — smooths raw sensor jitter into a readable
@@ -82,6 +83,13 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
     const temps = smooth(readings.map((r) => r.temperature));
     const hums = smooth(readings.map((r) => r.humidity));
     const luxs = smooth(readings.map((r) => r.lux_value || 0)); // guard pre-migration rows (null)
+
+    // Compare mode: time-shift previous period data to align with the current
+    // period so both periods overlay visually (same x-axis positions).
+    const periodMs = timeRange.end.getTime() - timeRange.start.getTime();
+    const prevTemps = prevReadings.length > 0 ? smooth(prevReadings.map((r) => r.temperature)) : [];
+    const prevHums  = prevReadings.length > 0 ? smooth(prevReadings.map((r) => r.humidity)) : [];
+    const prevLuxs  = prevReadings.length > 0 ? smooth(prevReadings.map((r) => r.lux_value || 0)) : [];
 
     // Dark-period shading intentionally uses raw ldr_value (NOT lux_value):
     // this is an internal display heuristic already tuned against raw ADC
@@ -243,9 +251,46 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
           lineStyle: { width: 1.5, opacity: 0.85 },
           showSymbol: false,
         },
+        // Compare-mode series: previous period, time-shifted to align with
+        // the current period on the x-axis, rendered as dashed semi-transparent
+        // lines on the same y-axes.
+        ...(prevReadings.length > 0 ? [
+          {
+            name: 'Temp (prev)',
+            type: 'line',
+            smooth: 0.2,
+            data: prevReadings.map((r, i) => [new Date(r.created_at).getTime() + periodMs, prevTemps[i]]),
+            itemStyle: { color: '#818cf8' },
+            lineStyle: { width: 1.5, type: 'dashed' as const, opacity: 0.35 },
+            showSymbol: false,
+            tooltip: { show: false } as any,
+          },
+          {
+            name: 'Hum (prev)',
+            type: 'line',
+            smooth: 0.2,
+            yAxisIndex: 1,
+            data: prevReadings.map((r, i) => [new Date(r.created_at).getTime() + periodMs, prevHums[i]]),
+            itemStyle: { color: '#38bdf8' },
+            lineStyle: { width: 1, type: 'dashed' as const, opacity: 0.35 },
+            showSymbol: false,
+            tooltip: { show: false } as any,
+          },
+          {
+            name: 'Light (prev)',
+            type: 'line',
+            smooth: 0.2,
+            yAxisIndex: 2,
+            data: prevReadings.map((r, i) => [new Date(r.created_at).getTime() + periodMs, prevLuxs[i]]),
+            itemStyle: { color: '#facc15' },
+            lineStyle: { width: 1, type: 'dashed' as const, opacity: 0.35 },
+            showSymbol: false,
+            tooltip: { show: false } as any,
+          },
+        ] : []),
       ],
     };
-  }, [readings, timeRange, timeframe, isMobile]);
+  }, [readings, timeRange, timeframe, isMobile, prevReadings]);
 
   return (
     <ReactECharts option={chartOptions} style={{ height: '100%', width: '100%' }} opts={{ renderer: 'svg' }} />

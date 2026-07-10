@@ -6,6 +6,7 @@ import KPICard from '@/components/KPICard';
 import TrendChart from '@/components/TrendChart';
 import ActivityTimeline from '@/components/ActivityTimeline';
 import SystemLogs from '@/components/SystemLogs';
+import CalendarHeatmap from '@/components/CalendarHeatmap';
 import { lightLevelDetail } from '@/lib/light';
 
 interface Reading {
@@ -44,6 +45,9 @@ interface DashboardViewProps {
   comfortScore: number;
   displayData: { temp: number; hum: number; lux: number; label: string };
   periodNavigation: React.ReactNode;
+  useCompare?: boolean;
+  onToggleCompare?: () => void;
+  prevReadings?: Reading[];
 }
 
 function StatChip({ label, value }: { label: string; value: string }) {
@@ -67,6 +71,9 @@ export default function DashboardView({
   comfortScore,
   displayData,
   periodNavigation,
+  useCompare = false,
+  onToggleCompare,
+  prevReadings = [],
 }: DashboardViewProps) {
   const stats = useMemo(() => {
     if (readings.length === 0) return null;
@@ -162,20 +169,35 @@ export default function DashboardView({
         </div>
       )}
 
+      <CalendarHeatmap readings={readings} />
+
       <div className="grid grid-cols-1 xl:grid-cols-10 gap-4 sm:gap-6">
         <div className="xl:col-span-7">
           <div className="card p-4 sm:p-6 flex flex-col">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4 sm:mb-6">
               <h2 className="text-sm font-medium text-[#a1a1aa]">Trend Analysis</h2>
-              <div className="flex flex-wrap items-center gap-2">{periodNavigation}</div>
+              <div className="flex flex-wrap items-center gap-2">
+                {onToggleCompare && (
+                  <button
+                    onClick={onToggleCompare}
+                    className={`px-2.5 py-1 text-xs rounded-md border transition-colors ${useCompare ? 'bg-[#818cf8]/10 border-[#818cf8] text-[#818cf8]' : 'bg-transparent border-[#1f1f23] text-[#6b7280] hover:border-[#818cf8] hover:text-[#a1a1aa]'}`}
+                  >
+                    Compare
+                  </button>
+                )}
+                {periodNavigation}
+              </div>
             </div>
             <div className="h-[260px] sm:h-[320px] md:h-[380px]">
-              <TrendChart readings={readings} timeRange={timeRange} timeframe={timeframe} />
+              <TrendChart readings={readings} timeRange={timeRange} timeframe={timeframe} prevReadings={prevReadings} />
             </div>
             <div className="flex flex-wrap gap-4 sm:gap-6 mt-4 sm:mt-6 border-t border-[#1f1f23] pt-4 overflow-x-auto">
               <LegendItem color="bg-[#818cf8]" label="Temperature (°C)" />
               <LegendItem color="bg-[#38bdf8]" label="Humidity (%)" />
               <LegendItem color="bg-[#facc15]" label="Light (Lux)" />
+              {useCompare && prevReadings.length > 0 && (
+                <LegendItem color="bg-[#6b7280]" label="Previous period (dashed)" />
+              )}
             </div>
           </div>
         </div>
