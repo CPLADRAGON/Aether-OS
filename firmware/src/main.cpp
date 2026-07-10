@@ -2005,20 +2005,16 @@ static void drawWeatherScreen(float tempC, int humPct, float feelsLike, dm::Icon
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
 
-  // Inverted header (10px):
-  //   Left:  small weather icon (~8px at 0.33 scale)
-  //   Right: feels-like temperature, e.g. "F:37.0C" (~36px at FONT_SMALL)
-  //          "F:" abbreviation keeps it short enough to fit after the icon.
-  char feelsBuf[12];
-  snprintf(feelsBuf, sizeof(feelsBuf), "F:%.1fC", feelsLike);
+  // Inverted header (10px): icon left + "XX% HUM" right.
+  char humBuf[10];
+  snprintf(humBuf, sizeof(humBuf), "%d%% HUM", humPct);
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10);
   dm::drawIconScaled(OLED_OFFSET_X + 7, OLED_OFFSET_Y + 5, conditionIcon, 0.33f);
   dm::setFont(dm::FONT_SMALL);
-  int feelsW = dm::textWidth(feelsBuf);
-  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - feelsW - 2, OLED_OFFSET_Y + 2, feelsBuf);
+  int humW = dm::textWidth(humBuf);
+  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - humW - 2, OLED_OFFSET_Y + 2, humBuf);
 
-  // Main temperature vertically centred in the body (y=10..40).
-  // FONT_LARGE is 20px tall; body = 30px → centre at y=10+(30-20)/2=15.
+  // Main temperature vertically centred in the body (y=10..37).
   char tempBuf[8];
   snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
   dm::setFont(dm::FONT_LARGE);
@@ -2027,13 +2023,12 @@ static void drawWeatherScreen(float tempC, int humPct, float feelsLike, dm::Icon
   if (tempX < 0) tempX = 0;
   dm::drawText(tempX, OLED_OFFSET_Y + 15, tempBuf);
 
-  // Footer row (FONT_SMALL, y=39..46):
-  //   Left:  humidity "%"
-  //   Right: ">" tap indicator to detail subpage
+  // Footer row: "FL XX.XC" left + ">" tap indicator right.
+  // "FL" = feels-like abbreviation (compact, won't overlap the chevron).
   dm::setFont(dm::FONT_SMALL);
-  char humBuf[6];
-  snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
-  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 39, humBuf);
+  char feelsBuf[10];
+  snprintf(feelsBuf, sizeof(feelsBuf), "FL %.1fC", feelsLike);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 39, feelsBuf);
   const char *chev = ">";
   int chW = dm::textWidth(chev);
   dm::drawText(OLED_OFFSET_X + OLED_W - chW - 2, OLED_OFFSET_Y + 39, chev);
@@ -2696,14 +2691,12 @@ static void drawTimerDone() {
 }
 
 void showTimerPage() {
-  // Requires NTP to know the current time (to compute expiry epoch).
-  if (!locationSynced || !timeSynced) {
-    drawLockedScreen(dm::ICON_INTERVAL_LG, "TIMER");
-    dm::toast("SYNC TIME FIRST", 2500);
-    waitWithButtonPoll(2500);
-    return;
-  }
-
+  // A countdown timer works with any internal clock -- time() returns the
+  // ESP32's internal RTC time which keeps running even without NTP sync
+  // (it just starts from epoch 0 on cold boot, but relative durations work
+  // correctly). Removed the locationSynced/timeSynced gate: those were
+  // unnecessarily blocking users from a feature that doesn't actually
+  // require internet or location data.
   // If timer already fired since we last checked, show done screen first.
   time_t now; time(&now);
   if (timerActive && now >= timerEndEpoch) {
