@@ -1877,42 +1877,36 @@ static void drawColumnValue(int colX, int colW, int topY,
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   if (!dm::beginFrame(portMAX_DELAY)) return;
 
-  // No header on this screen -- matches the Time screen's layout: a small
-  // icon row at the very top, huge hero value below it, divider, info
-  // strip. This frees enough width for the full "31.5C" decimal value at
-  // FONT_LARGE (10px/char x 5 chars = 50px, comfortably fits the 64px
-  // panel once nothing else shares the row) -- the previous icon-left/
-  // hero-right split only left ~32px for the value, which couldn't fit
-  // FONT_LARGE at all.
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
   char humBuf[6];
   snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
-  // Icon shrunk from its native 24x24 to ~12x12 (0.5 scale) via
-  // drawIconScaled() -- no separate small-icon asset needed, it reuses the
-  // same bitmap. Centred in its own slim top row, matching the Time
-  // screen's proportions for its procedural sun/moon icon. At this size
-  // the condition is hard to make out at a glance -- see
-  // drawWeatherDetail() (short tap toggles to it) for the full-size icon.
-  dm::drawIconScaled(OLED_OFFSET_X + OLED_W / 2, OLED_OFFSET_Y + 7,
-                      conditionIcon, 0.5f);
+  // Inverted header (10px): small weather icon on the left (~8x8 at
+  // 0.33 scale), humidity text right-aligned. Moving humidity up into the
+  // header frees the entire body for the temperature hero, making it
+  // noticeably larger and better-spaced than putting humidity in a footer
+  // strip and squeezing the temperature into a narrower vertical zone.
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10);
+  // Icon center: x=7, y=5 so the ~8px icon sits within the 10px header
+  // (center ± 4px = y=1..9). Using 0.33 scale instead of the previous
+  // 0.5 (12px) to fit within the header height without overflowing.
+  dm::drawIconScaled(OLED_OFFSET_X + 7, OLED_OFFSET_Y + 5,
+                      conditionIcon, 0.33f);
+  dm::setFont(dm::FONT_SMALL);
+  int humW = dm::textWidth(humBuf);
+  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - humW - 2, OLED_OFFSET_Y + 2, humBuf);
 
+  // Temperature centred in the full 38px body (y=10..47). FONT_LARGE is
+  // 20px tall, so the vertical centre lands at y = 10 + (38-20)/2 = 19,
+  // giving ~9px breathing room both above and below.
   char tempBuf[8];
   snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
   dm::setFont(dm::FONT_LARGE);
   int tempW = dm::textWidth(tempBuf);
   int tempX = OLED_OFFSET_X + (OLED_W - tempW) / 2;
   if (tempX < 0) tempX = 0;
-  dm::drawText(tempX, OLED_OFFSET_Y + 14, tempBuf);
-
-  // Thin divider separating the huge temp from the info strip below,
-  // matching drawClockScreen()'s identical treatment.
-  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 37, OLED_W - 4);
-
-  dm::setFont(dm::FONT_SMALL);
-  int humW = dm::textWidth(humBuf);
-  dm::drawText(OLED_OFFSET_X + (OLED_W - humW) / 2, OLED_OFFSET_Y + 39, humBuf);
+  dm::drawText(tempX, OLED_OFFSET_Y + 19, tempBuf);
 
   dm::endFrame();
 }
