@@ -144,6 +144,12 @@ uint32_t sessionStartTime = 0; // Relative (millis) or Absolute (UTC)
 // in showTimePage() to skip its WiFi+NTP resync when this is already true.
 RTC_DATA_ATTR bool timeSynced = false;
 
+// --- Alarm/countdown timer state -------------------------------------------
+// Both survive deep sleep via RTC_DATA_ATTR -- the timer keeps counting
+// across sleep cycles exactly as it would on a physical watch.
+RTC_DATA_ATTR bool timerActive  = false;
+RTC_DATA_ATTR time_t timerEndEpoch = 0; // UTC epoch when timer expires
+
 uint32_t calculateCRC(WiFiSnapshot *s) {
   uint32_t originalCrc = s->crc;
   s->crc = 0;
@@ -501,6 +507,7 @@ enum MenuPage {
   PAGE_ROOM,
   PAGE_LOCATE,
   PAGE_TREND,
+  PAGE_TIMER,
   PAGE_LED,
   PAGE_INTERVAL,
   PAGE_PORTAL,
@@ -508,10 +515,11 @@ enum MenuPage {
   PAGE_RESET,
   PAGE_SLEEP
 };
-const int TOTAL_MENU_ITEMS = 12;
+const int TOTAL_MENU_ITEMS = 13;
 const char *menuItems[] = {"MEASURE",     "TIME",       "WEATHER",     "ROOM",
-                           "LOCATE",      "TREND",      "LED",         "INTERVAL",
-                           "WIFI MENU",   "STATS",      "RESET STATS", "DEEP SLEEP"};
+                           "LOCATE",      "TREND",      "TIMER",       "LED",
+                           "INTERVAL",    "WIFI MENU",  "STATS",       "RESET STATS",
+                           "DEEP SLEEP"};
 
 enum WiFiMenuPage { WF_PORTAL, WF_SELECT, WF_CLEAR, WF_BACK };
 const char *wifiMenuItems[] = {"PORTAL", "SET TARGET", "CLEAR", "BACK"};
@@ -732,7 +740,8 @@ static bool    g_slideBufValid = false;
 // Icon strip mirroring menuItems / wifiMenuItems for cover-flow rendering.
 static const dm::Icon menuIcons[] = {
     dm::ICON_MEASURE_LG, dm::ICON_TIME_LG, dm::ICON_WEATHER_LG, dm::ICON_ROOM_LG,
-    dm::ICON_LOCATE_LG, dm::ICON_TREND_LG, dm::ICON_LED_LG, dm::ICON_INTERVAL_LG,
+    dm::ICON_LOCATE_LG, dm::ICON_TREND_LG, dm::ICON_INTERVAL_LG, // TIMER reuses INTERVAL icon (hourglass concept)
+    dm::ICON_LED_LG, dm::ICON_INTERVAL_LG,
     dm::ICON_WIFIMENU_LG, dm::ICON_STATS_LG, dm::ICON_RESET_LG, dm::ICON_SLEEP_LG
 };
 static const dm::Icon wifiMenuIcons[] = {
@@ -2627,6 +2636,140 @@ void showTrendPage() {
   }
 }
 
+// --- Countdown Timer page --------------------------------------------------
+// Preset durations (minutes) the user cycles through via short press.
+static const int TIMER_PRESETS[] = {5, 10, 15, 25, 30};
+static const int TIMER_PRESET_COUNT = 5;
+
+// Renders the timer selection/countdown screen.
+//  - When !timerActive: shows the selected preset + "HOLD START / TAP+"
+//  - When  timerActive: shows MM:SS remaining + a fill-bar progress indicator
+static void drawTimerScreen(int presetIdx, int secsRemaining, int totalSecs) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "TIMER", false, dm::ICON_WIFI);
+  dm::setFont(dm::FONT_NORMAL);
+
+  if (!timerActive) {
+    // Selection mode: show selected preset centred
+    char selBuf[12];
+    snprintf(selBuf, sizeof(selBuf), "%d MIN", TIMER_PRESETS[presetIdx]);
+    int sw = dm::textWidth(selBuf);
+    dm::drawText(OLED_OFFSET_X + (OLED_W - sw) / 2, OLED_OFFSET_Y + 16, selBuf);
+    dm::setFont(dm::FONT_SMALL);
+    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "TAP:+ HOLD:START");
+  } else {
+    // Countdown mode: show MM:SS large
+    int mm = secsRemaining / 60;
+    int ss = secsRemaining % 60;
+    char countBuf[8];
+    snprintf(countBuf, sizeof(countBuf), "%02d:%02d", mm, ss);
+    dm::setFont(dm::FONT_LARGE);
+    int cw = dm::textWidth(countBuf);
+    dm::drawText(OLED_OFFSET_X + (OLED_W - cw) / 2, OLED_OFFSET_Y + 12, countBuf);
+
+    // Fill-bar showing elapsed time (not remaining, so it fills left→right)
+    int elapsed = totalSecs - secsRemaining;
+    int barX = OLED_OFFSET_X + 2, barW = OLED_W - 4, barY = OLED_OFFSET_Y + 38;
+    dm::drawRect(barX, barY, barW, 4);
+    int fill = (totalSecs > 0) ? (barW * elapsed) / totalSecs : 0;
+    if (fill > 1) dm::drawFilledRect(barX + 1, barY + 1, fill - 1, 2);
+
+    dm::setFont(dm::FONT_SMALL);
+    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "HOLD:CANCEL");
+  }
+  dm::endFrame();
+}
+
+// Done screen shown when the timer expires.
+static void drawTimerDone() {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+  dm::drawHeader(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, "TIMER", false, dm::ICON_WIFI);
+  dm::setFont(dm::FONT_NORMAL);
+  const char *done = "DONE!";
+  int dw = dm::textWidth(done);
+  dm::drawText(OLED_OFFSET_X + (OLED_W - dw) / 2, OLED_OFFSET_Y + 16, done);
+  dm::setFont(dm::FONT_SMALL);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "ANY KEY TO DISMISS");
+  dm::endFrame();
+}
+
+void showTimerPage() {
+  // Requires NTP to know the current time (to compute expiry epoch).
+  if (!locationSynced || !timeSynced) {
+    drawLockedScreen(dm::ICON_INTERVAL_LG, "TIMER");
+    dm::toast("SYNC TIME FIRST", 2500);
+    waitWithButtonPoll(2500);
+    return;
+  }
+
+  // If timer already fired since we last checked, show done screen first.
+  time_t now; time(&now);
+  if (timerActive && now >= timerEndEpoch) {
+    timerActive = false;
+    drawTimerDone();
+    setLED(255, 60, 0); // amber flash
+    vTaskDelay(400 / portTICK_PERIOD_MS);
+    setLED(0, 10, 20);
+    waitWithButtonPoll(5000);
+    return;
+  }
+
+  int presetIdx = 0;
+  buttonEvent = false;
+
+  while (true) {
+    time(&now);
+    int secsRemaining = timerActive ? (int)(timerEndEpoch - now) : 0;
+    if (secsRemaining < 0) secsRemaining = 0;
+    int totalSecs = TIMER_PRESETS[presetIdx] * 60;
+
+    // Timer expired while we're on this page
+    if (timerActive && secsRemaining == 0) {
+      timerActive = false;
+      drawTimerDone();
+      // Flash LED several times
+      for (int i = 0; i < 6; i++) {
+        setLED(255, 60, 0);
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+        setLED(0, 10, 20);
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+      }
+      waitWithButtonPoll(5000);
+      return;
+    }
+
+    drawTimerScreen(presetIdx, secsRemaining, totalSecs);
+
+    // Long press: start/cancel the timer
+    if (isPressing && !longPressTriggered && (millis() - isrPressStart > LONG_PRESS_MS)) {
+      longPressTriggered = true;
+      if (timerActive) {
+        timerActive = false;
+        dm::toast("CANCELLED", 900);
+      } else {
+        time(&now);
+        timerEndEpoch = now + TIMER_PRESETS[presetIdx] * 60;
+        timerActive = true;
+        dm::toast("TIMER SET", 900);
+      }
+      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      return; // Exit back to menu
+    }
+
+    // Short tap: cycle preset (only in selection mode), or exit countdown
+    if (buttonEvent) {
+      buttonEvent = false;
+      if (!timerActive) {
+        presetIdx = (presetIdx + 1) % TIMER_PRESET_COUNT;
+      } else {
+        return; // any tap exits countdown view (timer keeps running)
+      }
+    }
+
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+  }
+}
+
 // drawMenu() is now a no-op wrapper (uiTask owns menu rendering). Kept for
 // callers that still invoke it during startup; harmless when nothing draws.
 void drawMenu() { /* moved to uiTask */ }
@@ -2723,6 +2866,26 @@ void monitorTask(void *pvParameters) {
   migrateNVS();
   loadTrendHistory();
 
+  // Check if a running timer expired while the device was in deep sleep.
+  // This must happen before the menu loop starts so the user sees the
+  // notification immediately on the next wake after expiry.
+  if (timerActive && timeSynced) {
+    time_t now; time(&now);
+    if (now > 0 && now >= timerEndEpoch) {
+      timerActive = false;
+      g_menuOwnedByPage = true;
+      drawTimerDone();
+      for (int i = 0; i < 6; i++) {
+        setLED(255, 60, 0);
+        vTaskDelay(250 / portTICK_PERIOD_MS);
+        setLED(0, 0, 0);
+        vTaskDelay(200 / portTICK_PERIOD_MS);
+      }
+      waitWithButtonPoll(5000);
+      g_menuOwnedByPage = false;
+    }
+  }
+
   // Stealth Mode Check
   if (config.ledEnabled) {
     ledcSetup(RED_CH, 5000, 8);
@@ -2815,6 +2978,8 @@ void monitorTask(void *pvParameters) {
             showRoomPage();
           else if (currentMenuIndex == PAGE_TREND)
             showTrendPage();
+          else if (currentMenuIndex == PAGE_TIMER)
+            showTimerPage();
           else if (currentMenuIndex == PAGE_PORTAL) {
             currentState = SS_WIFI_MENU;
             currentWiFiMenuIndex = 0;
