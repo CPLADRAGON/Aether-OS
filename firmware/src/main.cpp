@@ -1833,17 +1833,21 @@ static void buildLightLabel(char *out, size_t outSize, int maxWidthPx,
 }
 
 // Draws a decimal-precision hero temperature ("31.5C") at the given
-// top-left position, auto-fitting the widest font/format combo that stays
-// within maxWidthPx (measured with the REAL font metrics via
-// dm::textWidth(), not assumed char counts -- same philosophy as
-// buildLightLabel() above). Tries, in order:
+// Draws a decimal-precision hero temperature ("31.5C") at the given
+// top-left position, auto-fitting the widest font that stays within
+// maxWidthPx (measured with the REAL font metrics via dm::textWidth(), not
+// assumed char counts -- same philosophy as buildLightLabel() above). The
+// "C" unit is ALWAYS shown -- earlier drafts tried a middle tier that
+// dropped it to fit FONT_MEDIUM, but that's exactly what real hardware
+// showed (the full "31.5C" string doesn't fit FONT_MEDIUM's 32px budget as
+// often as hoped), and a missing unit reads as more broken than a smaller
+// font. Tries, in order:
 //   1. FONT_MEDIUM "31.5C"  (full detail, preferred)
-//   2. FONT_MEDIUM "31.5"   (drop the "C" unit -- context makes it obvious)
-//   3. FONT_NORMAL "31.5C"  (smaller font, guaranteed to fit)
+//   2. FONT_NORMAL "31.5C"  (smaller font, guaranteed to fit, unit intact)
 // Used by screens whose hero temp previously showed a bare whole-degree
 // FONT_LARGE value ("31C") -- FONT_LARGE (10px/char) cannot fit 5 characters
 // in the ~32px column these screens have available, so this steps down to
-// the next size(s) rather than truncating the decimal away.
+// a smaller font rather than truncating the decimal (or its unit) away.
 static void drawHeroTemp(int x, int yTop, int maxWidthPx, float tempC) {
   if (tempC > 99.9f) tempC = 99.9f;
   if (tempC < -9.9f) tempC = -9.9f;
@@ -1856,13 +1860,6 @@ static void drawHeroTemp(int x, int yTop, int maxWidthPx, float tempC) {
     return;
   }
 
-  snprintf(buf, sizeof(buf), "%.1f", tempC);
-  if (dm::textWidth(buf) <= maxWidthPx) {
-    dm::drawText(x, yTop, buf);
-    return;
-  }
-
-  snprintf(buf, sizeof(buf), "%.1fC", tempC);
   dm::setFont(dm::FONT_NORMAL);
   dm::drawText(x, yTop, buf);
 }
