@@ -632,7 +632,6 @@ static bool drawConfirmPromptAndWait(const char *title, const char *body,
 
 void setLED(int r, int g, int b) {
   if (!config.ledEnabled && (r > 0 || g > 0 || b > 0)) {
-    // Only allow brief flash if disabled, or just keep off
     ledcWrite(RED_CH, 0);
     ledcWrite(GREEN_CH, 0);
     ledcWrite(BLUE_CH, 0);
@@ -641,6 +640,37 @@ void setLED(int r, int g, int b) {
   ledcWrite(RED_CH, r);
   ledcWrite(GREEN_CH, g);
   ledcWrite(BLUE_CH, b);
+}
+
+// Unconditional LED flash for important user-triggered alerts (timer done,
+// etc.) that should fire regardless of the LED kill-switch setting. If the
+// LED is currently disabled (pins in INPUT/unattached mode), it temporarily
+// attaches, flashes, then detaches again so current draw doesn't increase
+// permanently.
+void flashLED(int r, int g, int b) {
+  bool wasDisabled = !config.ledEnabled;
+  if (wasDisabled) {
+    // Temporarily attach pins so ledcWrite has effect
+    ledcSetup(RED_CH, 5000, 8);
+    ledcAttachPin(RED_PIN, RED_CH);
+    ledcSetup(GREEN_CH, 5000, 8);
+    ledcAttachPin(GREEN_PIN, GREEN_CH);
+    ledcSetup(BLUE_CH, 5000, 8);
+    ledcAttachPin(BLUE_PIN, BLUE_CH);
+  }
+  ledcWrite(RED_CH, r);
+  ledcWrite(GREEN_CH, g);
+  ledcWrite(BLUE_CH, b);
+  if (wasDisabled && r == 0 && g == 0 && b == 0) {
+    // Detach pins again once we've written off (0,0,0) so they go back to
+    // high-impedance input mode and don't draw current.
+    ledcDetachPin(RED_PIN);
+    ledcDetachPin(GREEN_PIN);
+    ledcDetachPin(BLUE_PIN);
+    pinMode(RED_PIN, INPUT);
+    pinMode(GREEN_PIN, INPUT);
+    pinMode(BLUE_PIN, INPUT);
+  }
 }
 
 void toggleLED() {
@@ -2702,9 +2732,10 @@ void showTimerPage() {
   if (timerActive && now >= timerEndEpoch) {
     timerActive = false;
     drawTimerDone();
-    setLED(255, 60, 0); // amber flash
+    flashLED(255, 60, 0); // amber alert -- bypasses LED kill-switch intentionally
     vTaskDelay(400 / portTICK_PERIOD_MS);
-    setLED(0, 10, 20);
+    flashLED(0, 0, 0);
+    setLED(0, 10, 20);  // restore ambient if LED is enabled
     waitWithButtonPoll(5000);
     return;
   }
@@ -2722,13 +2753,14 @@ void showTimerPage() {
     if (timerActive && secsRemaining == 0) {
       timerActive = false;
       drawTimerDone();
-      // Flash LED several times
+      // Alert flash -- bypasses LED kill-switch intentionally
       for (int i = 0; i < 6; i++) {
-        setLED(255, 60, 0);
+        flashLED(255, 60, 0);
         vTaskDelay(250 / portTICK_PERIOD_MS);
-        setLED(0, 10, 20);
+        flashLED(0, 0, 0);
         vTaskDelay(200 / portTICK_PERIOD_MS);
       }
+      setLED(0, 10, 20); // restore ambient if LED is enabled
       waitWithButtonPoll(5000);
       return;
     }
@@ -2864,16 +2896,16 @@ void monitorTask(void *pvParameters) {
   // Check if a running timer expired while the device was in deep sleep.
   // This must happen before the menu loop starts so the user sees the
   // notification immediately on the next wake after expiry.
-  if (timerActive && timeSynced) {
+  if (timerActive) {
     time_t now; time(&now);
     if (now > 0 && now >= timerEndEpoch) {
       timerActive = false;
       g_menuOwnedByPage = true;
       drawTimerDone();
       for (int i = 0; i < 6; i++) {
-        setLED(255, 60, 0);
+        flashLED(255, 60, 0);
         vTaskDelay(250 / portTICK_PERIOD_MS);
-        setLED(0, 0, 0);
+        flashLED(0, 0, 0);
         vTaskDelay(200 / portTICK_PERIOD_MS);
       }
       waitWithButtonPoll(5000);
@@ -2934,6 +2966,28 @@ void monitorTask(void *pvParameters) {
     menuScrollPos = (float)currentMenuIndex;
     wifiMenuScrollPos = 0.f;
     while (millis() - lastInteractionTime < MENU_TIMEOUT) {
+      // Background timer expiry check: fires even when the user is in the
+      // menu (previously only caught on next sleep/wake cycle or when
+      // explicitly visiting the timer page).
+      if (timerActive) {
+        time_t tnow; time(&tnow);
+        if (tnow > 0 && tnow >= timerEndEpoch) {
+          timerActive = false;
+          g_menuOwnedByPage = true;
+          drawTimerDone();
+          for (int i = 0; i < 6; i++) {
+            flashLED(255, 60, 0);
+            vTaskDelay(250 / portTICK_PERIOD_MS);
+            flashLED(0, 0, 0);
+            vTaskDelay(200 / portTICK_PERIOD_MS);
+          }
+          setLED(0, 10, 20);
+          waitWithButtonPoll(5000);
+          g_menuOwnedByPage = false;
+          lastInteractionTime = millis(); // prevent immediate timeout exit
+        }
+      }
+
       bool triggerAction = false;
       if (isPressing && (millis() - isrPressStart > LONG_PRESS_MS)) {
         if (!longPressTriggered) {
