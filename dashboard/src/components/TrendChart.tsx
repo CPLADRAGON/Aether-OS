@@ -213,7 +213,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         {
           name: 'Temperature',
           type: 'line',
-          smooth: true,
+          smooth: 0.2,
           data: readings.map((r, i) => [new Date(r.created_at).getTime(), temps[i]]),
           itemStyle: { color: '#818cf8' },
           lineStyle: { width: 2.5 },
@@ -226,7 +226,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         {
           name: 'Humidity',
           type: 'line',
-          smooth: true,
+          smooth: 0.2,
           yAxisIndex: 1,
           data: readings.map((r, i) => [new Date(r.created_at).getTime(), hums[i]]),
           itemStyle: { color: '#38bdf8' },
@@ -236,7 +236,7 @@ export default function TrendChart({ readings, timeRange, timeframe }: TrendChar
         {
           name: 'Light',
           type: 'line',
-          smooth: true,
+          smooth: 0.2,
           yAxisIndex: 2,
           data: readings.map((r, i) => [new Date(r.created_at).getTime(), luxs[i]]),
           itemStyle: { color: '#facc15' },
