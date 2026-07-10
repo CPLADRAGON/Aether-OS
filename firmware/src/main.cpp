@@ -469,6 +469,8 @@ bool oledFound = false;
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmm, const char *day, int hour24);
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
+static void drawWeatherDetail(float tempC, int humPct, dm::Icon conditionIcon,
+                              const char *conditionLabel);
 
 // Maps OpenWeatherMap's weather[0].main field to an icon. That field is
 // always one of a fixed set of capitalized-mixed-case strings (see
@@ -482,6 +484,20 @@ static dm::Icon resolveWeatherIcon(const String &main) {
   if (main == "Thunderstorm") return dm::ICON_WEATHER_STORM_LG;
   if (main == "Snow") return dm::ICON_WEATHER_SNOW_LG;
   return dm::ICON_WEATHER_LG; // Clouds, Mist, Haze, Fog, etc.
+}
+// Short display label mirroring resolveWeatherIcon()'s exact same grouping
+// (kept as two separate small functions rather than one combined
+// icon+label struct/lookup -- both are simple 4-branch mappings and this
+// avoids introducing a new return type for a single caller pairing).
+// Used by drawWeatherDetail() where there's room to spell out the
+// condition as text (the main view's icon alone has to carry that on its
+// own, given so little space there).
+static const char *resolveWeatherLabel(const String &main) {
+  if (main == "Clear") return "SUNNY";
+  if (main == "Rain" || main == "Drizzle") return "RAINY";
+  if (main == "Thunderstorm") return "STORMY";
+  if (main == "Snow") return "SNOWY";
+  return "CLOUDY"; // Clouds, Mist, Haze, Fog, etc.
 }
 static void drawStatsScreen(uint32_t measures, uint32_t boots, uint32_t uptimeMin);
 static void drawLocateResult(const char *city);
@@ -547,15 +563,15 @@ bool waitWithButtonPoll(unsigned long ms) {
 
 // Waits for either a completed short tap or a long press, distinguishing
 // them as discrete events (unlike waitWithButtonPoll(), which treats any
-// button activity the same). Used by showRoomPage() to toggle between its
-// main view and status subpage on short tap, while still exiting instantly
-// on long press (checked continuously while held, matching the existing
-// "check for long press to exit instantly" pattern used elsewhere in this
-// file, e.g. in runMeasurementFlow()).
+// button activity the same). Used by showRoomPage() and showWeatherPage()
+// to toggle between their main view and a detail subpage on short tap,
+// while still exiting instantly on long press (checked continuously while
+// held, matching the existing "check for long press to exit instantly"
+// pattern used elsewhere in this file, e.g. in runMeasurementFlow()).
 //
 // Returns true if any interaction occurred (and sets *longPress
 // accordingly), or false on timeout with no interaction at all.
-bool waitRoomInteraction(unsigned long ms, bool *longPress) {
+bool waitToggleInteraction(unsigned long ms, bool *longPress) {
   *longPress = false;
   buttonEvent = false;
   unsigned long start = millis();
@@ -1405,6 +1421,12 @@ void showWeatherPage() {
   uiLine2 = "DATA...";
   uiLine3 = "";
 
+  float temp = 0;
+  int hum = 0;
+  dm::Icon icon = dm::ICON_WEATHER_LG;
+  const char *label = "CLOUDY";
+  bool haveData = false;
+
 #ifdef WEATHER_API_KEY
   WiFiClient client;
   HTTPClient http;
@@ -1419,10 +1441,12 @@ void showWeatherPage() {
     if (code == 200) {
       JsonDocument doc;
       deserializeJson(doc, http.getString());
-      float temp = doc["main"]["temp"].as<float>();
-      int hum = doc["main"]["humidity"].as<int>();
+      temp = doc["main"]["temp"].as<float>();
+      hum = doc["main"]["humidity"].as<int>();
       String main = doc["weather"][0]["main"].as<String>();
-      drawWeatherScreen(temp, hum, resolveWeatherIcon(main));
+      icon = resolveWeatherIcon(main);
+      label = resolveWeatherLabel(main);
+      haveData = true;
     } else {
       char buf[12]; snprintf(buf, sizeof(buf), "HTTP %d", code);
       drawErrorScreen("WEATHER", buf, "API FAILED");
@@ -1432,13 +1456,47 @@ void showWeatherPage() {
     drawErrorScreen("WEATHER", "BEGIN", "HTTP INIT");
   }
 #else
-  drawWeatherScreen(30.5f, 68, dm::ICON_WEATHER_SUN_LG);
+  temp = 30.5f;
+  hum = 68;
+  icon = dm::ICON_WEATHER_SUN_LG;
+  label = "SUNNY";
+  haveData = true;
 #endif
   // IMPORTANT: reset state BEFORE the display wait, otherwise uiTask keeps
   // rendering the SS_SYNCING spinner over drawMenu() and the button handler
   // (which only advances menu when state == SS_MENU/SS_WIFI_MENU) ignores presses.
   currentState = SS_MENU;
-  waitWithButtonPoll(8000);
+
+  if (!haveData) {
+    // Error screen was already drawn above -- just hold it briefly, no
+    // detail subpage to toggle to since there's no data to show.
+    waitWithButtonPoll(2500);
+    return;
+  }
+
+  // Toggle loop: short tap switches between the main hero view and a
+  // Weather Detail subpage (full-size condition icon + text label -- the
+  // main view's icon is shrunk to ~12px to make room for the big hero
+  // temperature, too small to read the condition clearly at a glance);
+  // long press or timeout exits to the menu. Mirrors showRoomPage()'s
+  // exact same toggle pattern.
+  bool showingDetail = false;
+  while (true) {
+    if (showingDetail) {
+      drawWeatherDetail(temp, hum, icon, label);
+    } else {
+      drawWeatherScreen(temp, hum, icon);
+    }
+
+    bool longPress = false;
+    if (!waitToggleInteraction(8000, &longPress)) {
+      return; // timeout -> back to menu
+    }
+    if (longPress) {
+      return; // long press -> back to menu
+    }
+    showingDetail = !showingDetail; // short tap -> toggle view
+  }
 }
 
 void runMeasurementFlow(String trigger) {
@@ -1783,7 +1841,9 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   // Icon shrunk from its native 24x24 to ~12x12 (0.5 scale) via
   // drawIconScaled() -- no separate small-icon asset needed, it reuses the
   // same bitmap. Centred in its own slim top row, matching the Time
-  // screen's proportions for its procedural sun/moon icon.
+  // screen's proportions for its procedural sun/moon icon. At this size
+  // the condition is hard to make out at a glance -- see
+  // drawWeatherDetail() (short tap toggles to it) for the full-size icon.
   dm::drawIconScaled(OLED_OFFSET_X + OLED_W / 2, OLED_OFFSET_Y + 7,
                       conditionIcon, 0.5f);
 
@@ -1802,6 +1862,38 @@ static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon) {
   dm::setFont(dm::FONT_SMALL);
   int humW = dm::textWidth(humBuf);
   dm::drawText(OLED_OFFSET_X + (OLED_W - humW) / 2, OLED_OFFSET_Y + 39, humBuf);
+
+  dm::endFrame();
+}
+
+// WEATHER DETAIL subpage: full-size (native 24x24) condition icon + text
+// label, reached by short-tapping the WEATHER main view (short tap again
+// returns to it, matching drawRoomStatusDetail()'s exact toggle pattern --
+// see showWeatherPage()). Exists solely to give the icon room to actually
+// be legible; the main view's 12x12 shrunk icon can't show its shape
+// clearly at that size.
+static void drawWeatherDetail(float tempC, int humPct, dm::Icon conditionIcon,
+                              const char *conditionLabel) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+
+  int iconX = OLED_OFFSET_X + (OLED_W - 24) / 2;
+  dm::drawIcon24(iconX, OLED_OFFSET_Y + 1, conditionIcon);
+
+  dm::setFont(dm::FONT_SMALL);
+  int labelW = dm::textWidth(conditionLabel);
+  dm::drawText(OLED_OFFSET_X + (OLED_W - labelW) / 2, OLED_OFFSET_Y + 27,
+               conditionLabel);
+
+  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 36, OLED_W - 4);
+
+  char statsBuf[16];
+  int humPctClamped = humPct;
+  if (humPctClamped > 99) humPctClamped = 99;
+  if (humPctClamped < 0)  humPctClamped = 0;
+  snprintf(statsBuf, sizeof(statsBuf), "%.1fC  %d%%", tempC, humPctClamped);
+  int statsW = dm::textWidth(statsBuf);
+  dm::drawText(OLED_OFFSET_X + (OLED_W - statsW) / 2, OLED_OFFSET_Y + 39,
+               statsBuf);
 
   dm::endFrame();
 }
@@ -2253,7 +2345,7 @@ void showRoomPage() {
     }
 
     bool longPress = false;
-    if (!waitRoomInteraction(5000, &longPress)) {
+    if (!waitToggleInteraction(5000, &longPress)) {
       return; // timeout -> back to menu
     }
     if (longPress) {
