@@ -468,6 +468,11 @@ bool oledFound = false;
 // runMeasurementFlow which come before their definitions).
 static void drawClockScreen(const char *hh, const char *mm, const char *ss,
                             const char *ddmmm, const char *day, int hour24);
+static void drawTimeDetail(const char *hh, const char *mm, const char *ss,
+                           const char *ddmmm, const char *dayShort,
+                           const char *dayFull, int year,
+                           int weekNum, int dayOfYear, int hour24,
+                           int minVal, int secVal);
 static void drawWeatherScreen(float tempC, int humPct, dm::Icon conditionIcon);
 static void drawWeatherDetail(float tempC, int humPct, dm::Icon conditionIcon,
                               const char *conditionLabel);
@@ -1382,26 +1387,48 @@ void showTimePage() {
     if (retries < 10) timeSynced = true;
   }
 
-  unsigned long start = millis();
-  String cleanCity = String(locCity);
-  cleanCity.toUpperCase();
-
-  while (millis() - start < 8000) {
+  // Toggle loop: short tap switches between the main clock view and the
+  // Time Detail subpage; long press or timeout exits to the menu.
+  // The main clock re-renders every 500ms to keep the blinking colon/
+  // seconds live (same rate as before). The detail subpage re-renders on
+  // every tick too so the seconds counter and day-progress bar stay live.
+  bool showingDetail = false;
+  while (true) {
     if (getLocalTime(&tinfo)) {
-      char hh[3], mm[3], ss[4], dStr[12], dayStr[16];
-      strftime(hh,   sizeof(hh),   "%H", &tinfo);
-      strftime(mm,   sizeof(mm),   "%M", &tinfo);
-      strftime(ss,   sizeof(ss),   "%S", &tinfo);
-      strftime(dStr, sizeof(dStr), "%d %b", &tinfo);
-      strftime(dayStr, sizeof(dayStr), "%a", &tinfo);
-      String day = String(dayStr);
-      day.toUpperCase();
-      String dateStr = String(dStr);
-      dateStr.toUpperCase();
-      drawClockScreen(hh, mm, ss, dateStr.c_str(), day.c_str(), tinfo.tm_hour);
+      char hh[3], mm[3], ss[4], dStr[12], dayStr[16], dayFull[12], wkBuf[4];
+      strftime(hh,      sizeof(hh),      "%H", &tinfo);
+      strftime(mm,      sizeof(mm),      "%M", &tinfo);
+      strftime(ss,      sizeof(ss),      "%S", &tinfo);
+      strftime(dStr,    sizeof(dStr),    "%d %b", &tinfo);
+      strftime(dayStr,  sizeof(dayStr),  "%a", &tinfo);
+      strftime(dayFull, sizeof(dayFull), "%A", &tinfo);
+      strftime(wkBuf,   sizeof(wkBuf),   "%W", &tinfo);
+      String day = String(dayStr); day.toUpperCase();
+      String dateStr = String(dStr); dateStr.toUpperCase();
+      String dayFullStr = String(dayFull); dayFullStr.toUpperCase();
+      int yearVal = tinfo.tm_year + 1900;
+      int weekNum = atoi(wkBuf);
+      int dayOfYear = tinfo.tm_yday + 1; // tm_yday is 0-based
+
+      if (showingDetail) {
+        drawTimeDetail(hh, mm, ss, dateStr.c_str(), day.c_str(),
+                       dayFullStr.c_str(), yearVal, weekNum, dayOfYear,
+                       tinfo.tm_hour, tinfo.tm_min, tinfo.tm_sec);
+      } else {
+        drawClockScreen(hh, mm, ss, dateStr.c_str(), day.c_str(), tinfo.tm_hour);
+      }
     }
-    if (waitWithButtonPoll(500))
-      break; // Cancel on button press
+
+    bool longPress = false;
+    if (waitToggleInteraction(500, &longPress)) {
+      if (longPress) return; // long press -> back to menu
+      showingDetail = !showingDetail; // short tap -> toggle view
+    }
+    // No interaction on this 500ms tick -- just continue the loop.
+    // We don't use a hard outer-loop timeout here: the user stays as long
+    // as they want, exiting via long press. (Weather does 8s auto-timeout
+    // since it shows static fetched data; the clock is live and useful
+    // indefinitely.)
   }
 }
 
@@ -1795,7 +1822,83 @@ static void drawClockScreen(const char *hh, const char *mm, const char *ss,
   dm::endFrame();
 }
 
-// Two-column value renderer used by Weather/Stats/Measure.
+// TIME DETAIL subpage -- reached by short-tapping the main clock view.
+// Shows the info the main view omits in its minimalist layout:
+//   - Header (inverted): full HH:MM:SS + day abbreviation right-aligned
+//   - Full date with year
+//   - Week number and day-of-year
+//   - Divider
+//   - City name and UTC offset on the same row
+//   - Divider
+//   - Day-progress bar with percentage (how far through the current day)
+static void drawTimeDetail(const char *hh, const char *mm, const char *ss,
+                           const char *ddmmm, const char *dayShort,
+                           const char *dayFull, int year,
+                           int weekNum, int dayOfYear, int hour24,
+                           int minVal, int secVal) {
+  if (!dm::beginFrame(portMAX_DELAY)) return;
+
+  // Header row (inverted): "HH:MM:SS" left, "DAY" abbreviation right.
+  // Both in FONT_SMALL -- the header is only 10px tall so there's no room
+  // for a larger font. The seconds here are the key piece of info the main
+  // clock view intentionally omits.
+  dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10);
+  dm::setFont(dm::FONT_SMALL);
+  char timeBuf[10];
+  snprintf(timeBuf, sizeof(timeBuf), "%s:%s:%s", hh, mm, ss);
+  dm::drawTextInverted(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 2, timeBuf);
+  int daw = dm::textWidth(dayShort);
+  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - daw - 2, OLED_OFFSET_Y + 2, dayShort);
+
+  // Full date with year, e.g. "10 JUL 2026".
+  char dateFull[14];
+  snprintf(dateFull, sizeof(dateFull), "%s %d", ddmmm, year);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 11, dateFull);
+
+  // Week number + day-of-year, e.g. "WK28 · D191".
+  char wdBuf[14];
+  snprintf(wdBuf, sizeof(wdBuf), "WK%d · D%d", weekNum, dayOfYear);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 19, wdBuf);
+
+  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 27, OLED_W - 4);
+
+  // City name and UTC offset on the same row (city left, UTC right).
+  // City is already uppercased (see locCity at boot).
+  char tzBuf[8];
+  long tzHr = locOffset / 3600;
+  snprintf(tzBuf, sizeof(tzBuf), "UTC%+ld", tzHr);
+  int tzw = dm::textWidth(tzBuf);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 29, locCity);
+  dm::drawText(OLED_OFFSET_X + OLED_W - tzw - 2, OLED_OFFSET_Y + 29, tzBuf);
+
+  dm::drawHLine(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 37, OLED_W - 4);
+
+  // Day-progress bar: fraction of the current 24-hour day that has elapsed.
+  // "DAY" label left, percentage right, then a filled bar below them.
+  int dayPct = (hour24 * 3600 + minVal * 60 + secVal) * 100 / 86400;
+  if (dayPct < 0) dayPct = 0;
+  if (dayPct > 100) dayPct = 100;
+  char pctBuf[6];
+  snprintf(pctBuf, sizeof(pctBuf), "%d%%", dayPct);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 39, "DAY");
+  int pw = dm::textWidth(pctBuf);
+  dm::drawText(OLED_OFFSET_X + OLED_W - pw - 2, OLED_OFFSET_Y + 39, pctBuf);
+
+  // Bar: full-width outline at y=46, filled portion proportional to dayPct.
+  int barX = OLED_OFFSET_X + 2;
+  int barW = OLED_W - 4;
+  int barY = OLED_OFFSET_Y + 46;
+  dm::drawHLine(barX, barY, barW);           // outline top
+  dm::drawHLine(barX, barY + 1, barW);       // 2px thick bar
+  int fill = (barW * dayPct) / 100;
+  if (fill > 0) {
+    dm::drawFilledRect(barX, barY, fill, 2); // filled portion
+  }
+
+  dm::endFrame();
+}
+
+
 // Draws a centred SMALL label on the top row and a centred HUGE numeric value
 // on the middle row. Guarantees the value never overflows the column (long
 // values are shrunk to FONT_LARGE, then FONT_NORMAL, then truncated).
