@@ -132,14 +132,16 @@ export default function TrendChart({ readings, timeRange, timeframe, prevReading
           let tooltipText = `<div style="font-size:10px;color:#6b7280;margin-bottom:4px;">${timeStr}</div>`;
           let t = 0, h = 0;
           params.forEach((param: any) => {
-            const val = param.value[1];
+            // Only show the 3 main series in the tooltip (skip compare dashes)
+            if (param.seriesName.includes('(prev)')) return;
+            const val = typeof param.value[1] === 'number' ? param.value[1].toFixed(1) : param.value[1];
             tooltipText += `<div style="display:flex;align-items:center;gap:6px;margin:2px 0;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:${param.color};"></span> <span style="font-weight:600">${param.seriesName}:</span> ${val}</div>`;
-            if (param.seriesName === 'Temperature') t = val;
-            if (param.seriesName === 'Humidity') h = val;
+            if (param.seriesName === 'Temperature') t = param.value[1];
+            if (param.seriesName === 'Humidity') h = param.value[1];
           });
 
           const hi = -8.78469475556 + 1.61139411 * t + 2.33854883889 * h - 0.14611605 * t * h - 0.012308094 * t * t - 0.0164248277778 * h * h + 0.002211732 * t * t * h + 0.00072546 * t * h * h - 0.000003582 * t * t * h * h;
-          tooltipText += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1f1f23;display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:#818cf8;"></span> <span style="font-weight:600">Apparent Temp:</span> ${hi.toFixed(1)} °C</div>`;
+          tooltipText += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #1f1f23;display:flex;align-items:center;gap:6px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background-color:#818cf8;"></span> <span style="font-weight:600">Apparent:</span> ${hi.toFixed(1)} °C</div>`;
           return tooltipText;
         },
       },

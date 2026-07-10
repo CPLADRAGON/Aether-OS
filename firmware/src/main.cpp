@@ -2004,20 +2004,21 @@ static void drawWeatherScreen(float tempC, int humPct, float feelsLike, dm::Icon
 
   if (humPct > 99) humPct = 99;
   if (humPct < 0)  humPct = 0;
-  char humBuf[6];
-  snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
 
-  // Inverted header (10px): small weather icon left (~8px at 0.33 scale)
-  // + humidity right-aligned.
+  // Inverted header (10px):
+  //   Left:  small weather icon (~8px at 0.33 scale)
+  //   Right: feels-like temperature, e.g. "F:37.0C" (~36px at FONT_SMALL)
+  //          "F:" abbreviation keeps it short enough to fit after the icon.
+  char feelsBuf[12];
+  snprintf(feelsBuf, sizeof(feelsBuf), "F:%.1fC", feelsLike);
   dm::drawFilledRect(OLED_OFFSET_X, OLED_OFFSET_Y, OLED_W, 10);
-  dm::drawIconScaled(OLED_OFFSET_X + 7, OLED_OFFSET_Y + 5,
-                      conditionIcon, 0.33f);
+  dm::drawIconScaled(OLED_OFFSET_X + 7, OLED_OFFSET_Y + 5, conditionIcon, 0.33f);
   dm::setFont(dm::FONT_SMALL);
-  int humW = dm::textWidth(humBuf);
-  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - humW - 2, OLED_OFFSET_Y + 2, humBuf);
+  int feelsW = dm::textWidth(feelsBuf);
+  dm::drawTextInverted(OLED_OFFSET_X + OLED_W - feelsW - 2, OLED_OFFSET_Y + 2, feelsBuf);
 
-  // Main temperature, shifted up from y=19 to y=15 to leave room for
-  // the feels-like secondary line below.
+  // Main temperature vertically centred in the body (y=10..40).
+  // FONT_LARGE is 20px tall; body = 30px → centre at y=10+(30-20)/2=15.
   char tempBuf[8];
   snprintf(tempBuf, sizeof(tempBuf), "%.1fC", tempC);
   dm::setFont(dm::FONT_LARGE);
@@ -2026,20 +2027,16 @@ static void drawWeatherScreen(float tempC, int humPct, float feelsLike, dm::Icon
   if (tempX < 0) tempX = 0;
   dm::drawText(tempX, OLED_OFFSET_Y + 15, tempBuf);
 
-  // Feels-like temperature: "FEELS 29.2C", centred. Provides useful context
-  // the detail subpage doesn't show (it shows icon + condition label, not
-  // feels-like). Extracted from the same API call.
-  char feelsBuf[14];
-  snprintf(feelsBuf, sizeof(feelsBuf), "FEELS %.1fC", feelsLike);
+  // Footer row (FONT_SMALL, y=39..46):
+  //   Left:  humidity "%"
+  //   Right: ">" tap indicator to detail subpage
   dm::setFont(dm::FONT_SMALL);
-  int feelsW = dm::textWidth(feelsBuf);
-  dm::drawText(OLED_OFFSET_X + (OLED_W - feelsW) / 2, OLED_OFFSET_Y + 37, feelsBuf);
-
-  // ">" tap indicator: guides user to the detail subpage (same affordance
-  // as Room screen's bottom-right chevron).
-  const char *chevron = ">";
-  int chW = dm::textWidth(chevron);
-  dm::drawText(OLED_OFFSET_X + OLED_W - chW - 2, OLED_OFFSET_Y + 41, chevron);
+  char humBuf[6];
+  snprintf(humBuf, sizeof(humBuf), "%d%%", humPct);
+  dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + 39, humBuf);
+  const char *chev = ">";
+  int chW = dm::textWidth(chev);
+  dm::drawText(OLED_OFFSET_X + OLED_W - chW - 2, OLED_OFFSET_Y + 39, chev);
 
   dm::endFrame();
 }
@@ -2651,12 +2648,16 @@ static void drawTimerScreen(int presetIdx, int secsRemaining, int totalSecs) {
 
   if (!timerActive) {
     // Selection mode: show selected preset centred
-    char selBuf[12];
-    snprintf(selBuf, sizeof(selBuf), "%d MIN", TIMER_PRESETS[presetIdx]);
+    char selBuf[8];
+    snprintf(selBuf, sizeof(selBuf), "%dMIN", TIMER_PRESETS[presetIdx]);
     int sw = dm::textWidth(selBuf);
     dm::drawText(OLED_OFFSET_X + (OLED_W - sw) / 2, OLED_OFFSET_Y + 16, selBuf);
     dm::setFont(dm::FONT_SMALL);
-    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "TAP:+ HOLD:START");
+    // Short labels that fit the 64px panel (FONT_SMALL ~5px/char):
+    // "TAP:+" = 5 chars = ~25px, "HOLD:OK" = 7 chars = ~35px, total ~60px + spacing = safe
+    dm::drawText(OLED_OFFSET_X + 2,  OLED_OFFSET_Y + OLED_H - 8, "TAP:+");
+    int hw = dm::textWidth("HOLD:OK");
+    dm::drawText(OLED_OFFSET_X + OLED_W - hw - 2, OLED_OFFSET_Y + OLED_H - 8, "HOLD:OK");
   } else {
     // Countdown mode: show MM:SS large
     int mm = secsRemaining / 60;
@@ -2667,15 +2668,16 @@ static void drawTimerScreen(int presetIdx, int secsRemaining, int totalSecs) {
     int cw = dm::textWidth(countBuf);
     dm::drawText(OLED_OFFSET_X + (OLED_W - cw) / 2, OLED_OFFSET_Y + 12, countBuf);
 
-    // Fill-bar showing elapsed time (not remaining, so it fills left→right)
+    // Fill-bar: gap between y=34 and the hint text at y=40 gives clear separation
     int elapsed = totalSecs - secsRemaining;
-    int barX = OLED_OFFSET_X + 2, barW = OLED_W - 4, barY = OLED_OFFSET_Y + 38;
+    int barX = OLED_OFFSET_X + 2, barW = OLED_W - 4, barY = OLED_OFFSET_Y + 34;
     dm::drawRect(barX, barY, barW, 4);
     int fill = (totalSecs > 0) ? (barW * elapsed) / totalSecs : 0;
     if (fill > 1) dm::drawFilledRect(barX + 1, barY + 1, fill - 1, 2);
 
     dm::setFont(dm::FONT_SMALL);
-    dm::drawText(OLED_OFFSET_X + 2, OLED_OFFSET_Y + OLED_H - 8, "HOLD:CANCEL");
+    int chw = dm::textWidth("HOLD:END");
+    dm::drawText(OLED_OFFSET_X + OLED_W - chw - 2, OLED_OFFSET_Y + OLED_H - 8, "HOLD:END");
   }
   dm::endFrame();
 }

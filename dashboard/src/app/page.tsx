@@ -57,6 +57,7 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<DeviceLog[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [initialLoad, setInitialLoad] = useState(true); // true only until first fetch completes
   const [timeframe, setTimeframe] = useState<Timeframe>('day');
   const [referenceDate, setReferenceDate] = useState<Date>(new Date());
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -130,6 +131,7 @@ export default function Dashboard() {
         if (readingsData.length > 0) setLatest(readingsData[readingsData.length - 1]);
       }
       setLoading(false);
+      setInitialLoad(false);
 
       // Compare mode: fetch the equivalent prior period
       if (useCompare) {
@@ -161,6 +163,8 @@ export default function Dashboard() {
         const { data: sessionsData } = await supabase
           .from('device_sessions')
           .select('*')
+          .gte('synced_at', new Date(timeRange.start.getTime() - 24 * 60 * 60 * 1000).toISOString()) // fetch a day before start to catch timezone edge cases
+          .lte('synced_at', timeRange.end.toISOString())
           .order('synced_at', { ascending: false })
           .limit(5000);
         if (sessionsData) setSessions(sessionsData);
@@ -308,9 +312,13 @@ export default function Dashboard() {
     : '--:--:--';
 
   const filteredSessions = useMemo(() => {
+    // Add a 12-hour buffer before start to catch sessions whose synced_at
+    // (UTC) maps to "today" in SGT even though the UTC timestamp falls
+    // slightly before the SGT day boundary computed from timeRange.start.
+    const bufferMs = 12 * 60 * 60 * 1000;
     return sessions.filter((s) => {
       const d = new Date(s.synced_at);
-      return d >= timeRange.start && d <= timeRange.end;
+      return d >= new Date(timeRange.start.getTime() - bufferMs) && d <= timeRange.end;
     });
   }, [sessions, timeRange]);
 
@@ -413,7 +421,7 @@ export default function Dashboard() {
             logs={logs}
             timeframe={timeframe}
             timeRange={timeRange}
-            loading={loading}
+            loading={initialLoad}
             environmentEvents={environmentEvents}
             formatSGTime={formatSGTime}
             comfortScore={comfortScore}
