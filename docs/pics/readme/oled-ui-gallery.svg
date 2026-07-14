@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" role="img" aria-label="Aether OLED interface preview gallery">
+  <rect width="1280" height="720" fill="#0d0d0f"/>
+  <text x="48" y="58" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="34" font-weight="700">OLED interface previews</text>
+  <text x="48" y="86" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="16">Current Aether-OS 64×48 layouts</text>
+  <g font-family="monospace" fill="#fff">
+    <!-- MENU -->
+    <g transform="translate(48,126) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <rect x="0" y="0" width="64" height="10" fill="#fff"/><text x="3" y="7" fill="#000" font-size="6">MENU</text>
+      <rect x="10" y="13" width="44" height="8" fill="#fff"/><text x="15" y="19" fill="#000" font-size="6">MEASURE</text>
+      <text x="18" y="30" font-size="6">TIME</text><text x="18" y="37" font-size="6">WEATHER</text><text x="18" y="44" font-size="6">ROOM</text>
+    </g>
+    <text x="48" y="340" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">MAIN MENU</text>
+    <!-- TIME -->
+    <g transform="translate(340,126) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <text x="7" y="28" font-size="18">14:32</text><line x1="2" y1="37" x2="62" y2="37" stroke="#fff"/>
+      <text x="2" y="45" font-size="6">THU</text><text x="44" y="45" font-size="6">10 JUL</text>
+    </g>
+    <text x="340" y="340" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">TIME</text>
+    <!-- WEATHER -->
+    <g transform="translate(632,126) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <rect x="0" y="0" width="64" height="10" fill="#fff"/><text x="4" y="7" fill="#000" font-size="6">☼</text><text x="43" y="7" fill="#000" font-size="5">82% HUM</text>
+      <text x="7" y="32" font-size="18">31.5C</text><text x="2" y="45" font-size="5">FL 37.0C</text><text x="59" y="45" font-size="5">&gt;</text>
+    </g>
+    <text x="632" y="340" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">WEATHER</text>
+    <!-- ROOM -->
+    <g transform="translate(924,126) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <text x="28" y="9" font-size="7">⌂</text><text x="7" y="32" font-size="18">29.4C</text><line x1="2" y1="37" x2="62" y2="37" stroke="#fff"/>
+      <text x="2" y="45" font-size="5">68%</text><text x="42" y="45" font-size="5">BRIGHT&gt;</text>
+    </g>
+    <text x="924" y="340" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">ROOM</text>
+    <!-- TIMER -->
+    <g transform="translate(194,420) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <rect x="0" y="0" width="64" height="10" fill="#fff"/><text x="3" y="7" fill="#000" font-size="6">TIMER</text>
+      <text x="13" y="32" font-size="18">14:28</text><rect x="2" y="34" width="60" height="4" fill="none" stroke="#fff"/><rect x="3" y="35" width="28" height="2" fill="#fff"/>
+      <text x="36" y="45" font-size="5">HOLD:END</text>
+    </g>
+    <text x="194" y="634" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">TIMER</text>
+    <!-- WEATHER DETAIL -->
+    <g transform="translate(534,420) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <circle cx="32" cy="13" r="9" fill="none" stroke="#fff"/><line x1="32" y1="1" x2="32" y2="4" stroke="#fff"/><line x1="32" y1="22" x2="32" y2="25" stroke="#fff"/>
+      <text x="21" y="31" font-size="6">SUNNY</text><line x1="2" y1="36" x2="62" y2="36" stroke="#fff"/><text x="17" y="45" font-size="5">31.5C  82%</text>
+    </g>
+    <text x="534" y="634" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">WEATHER DETAIL</text>
+    <!-- TIME DETAIL -->
+    <g transform="translate(874,420) scale(4)">
+      <rect width="64" height="48" rx="1" fill="#000" stroke="#34343b" stroke-width=".7"/>
+      <rect x="0" y="0" width="64" height="10" fill="#fff"/><text x="2" y="7" fill="#000" font-size="5">14:32:47</text><text x="51" y="7" fill="#000" font-size="5">THU</text>
+      <text x="2" y="19" font-size="5">10 JUL 2026</text><text x="2" y="27" font-size="5">WK28 · D191</text><line x1="2" y1="31" x2="62" y2="31" stroke="#fff"/>
+      <text x="2" y="39" font-size="5">TODAY</text><text x="50" y="39" font-size="5">61%</text><rect x="2" y="43" width="60" height="3" fill="none" stroke="#fff"/><rect x="3" y="44" width="35" height="1" fill="#fff"/>
+    </g>
+    <text x="874" y="634" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="15">TIME DETAIL</text>
+  </g>
+</svg>

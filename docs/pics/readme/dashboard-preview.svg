@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-label="Aether dashboard interface preview">
+  <rect width="1440" height="900" fill="#0d0d0f"/>
+  <rect width="1440" height="56" fill="#101014" stroke="#1f1f23"/>
+  <text x="28" y="36" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="20" font-weight="700">Aether</text>
+  <rect x="102" y="13" width="94" height="32" rx="6" fill="#24242b"/>
+  <text x="116" y="34" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="14" font-weight="600">Dashboard</text>
+  <text x="214" y="34" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="14">Power</text>
+  <circle cx="1354" cy="28" r="5" fill="#34d399"/>
+  <text x="1366" y="33" fill="#34d399" font-family="Arial,sans-serif" font-size="12">Online</text>
+
+  <text x="28" y="91" fill="#6b7280" font-family="Arial,sans-serif" font-size="13">System monitoring</text>
+  <text x="28" y="122" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="27" font-weight="700">Environmental Overview</text>
+  <rect x="312" y="102" width="102" height="24" rx="4" fill="#17171c" stroke="#1f1f23"/>
+  <text x="324" y="118" fill="#a1a1aa" font-family="monospace" font-size="10">SYNC 14:32:47</text>
+
+  <g font-family="Arial,sans-serif">
+    <g>
+      <rect x="28" y="152" width="326" height="144" rx="10" fill="#17171c" stroke="#24242b"/>
+      <text x="50" y="184" fill="#818cf8" font-size="13">Temperature</text>
+      <text x="50" y="233" fill="#f4f4f5" font-size="39" font-weight="700">29.4</text>
+      <text x="147" y="233" fill="#a1a1aa" font-size="18">°C</text>
+      <rect x="50" y="254" width="250" height="4" rx="2" fill="#24242b"/><rect x="50" y="254" width="148" height="4" rx="2" fill="#818cf8"/>
+      <text x="50" y="279" fill="#6b7280" font-size="11">Latest sync</text>
+    </g>
+    <g>
+      <rect x="378" y="152" width="326" height="144" rx="10" fill="#17171c" stroke="#24242b"/>
+      <text x="400" y="184" fill="#38bdf8" font-size="13">Humidity</text>
+      <text x="400" y="233" fill="#f4f4f5" font-size="39" font-weight="700">68.0</text>
+      <text x="497" y="233" fill="#a1a1aa" font-size="18">%</text>
+      <rect x="400" y="254" width="250" height="4" rx="2" fill="#24242b"/><rect x="400" y="254" width="170" height="4" rx="2" fill="#38bdf8"/>
+      <text x="400" y="279" fill="#6b7280" font-size="11">Latest sync</text>
+    </g>
+    <g>
+      <rect x="728" y="152" width="326" height="144" rx="10" fill="#17171c" stroke="#24242b"/>
+      <text x="750" y="184" fill="#facc15" font-size="13">Light Intensity</text>
+      <text x="750" y="233" fill="#f4f4f5" font-size="39" font-weight="700">420</text>
+      <text x="829" y="233" fill="#a1a1aa" font-size="18">lux</text>
+      <rect x="750" y="254" width="250" height="4" rx="2" fill="#24242b"/><rect x="750" y="254" width="82" height="4" rx="2" fill="#facc15"/>
+      <text x="750" y="279" fill="#6b7280" font-size="11">Latest sync · Bright Indoor</text>
+    </g>
+    <g>
+      <rect x="1078" y="152" width="334" height="144" rx="10" fill="#17171c" stroke="#24242b"/>
+      <text x="1192" y="184" fill="#a1a1aa" font-size="13">Comfort Index</text>
+      <text x="1210" y="238" fill="#f4f4f5" font-size="51" font-weight="700">76</text>
+      <text x="1272" y="238" fill="#a1a1aa" font-size="14">/100</text>
+      <rect x="1100" y="262" width="260" height="4" rx="2" fill="#24242b"/><rect x="1100" y="262" width="198" height="4" rx="2" fill="#818cf8"/>
+    </g>
+  </g>
+
+  <rect x="28" y="320" width="960" height="440" rx="10" fill="#17171c" stroke="#24242b"/>
+  <text x="50" y="356" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="17" font-weight="700">Trend Analysis</text>
+  <g font-family="Arial,sans-serif" font-size="12">
+    <rect x="688" y="336" width="52" height="28" rx="5" fill="#818cf8"/><text x="705" y="355" fill="#0d0d0f" font-weight="700">Day</text>
+    <text x="758" y="355" fill="#a1a1aa">Week</text><text x="812" y="355" fill="#a1a1aa">Month</text><text x="882" y="355" fill="#a1a1aa">Year</text>
+  </g>
+  <line x1="70" y1="680" x2="940" y2="680" stroke="#24242b"/>
+  <line x1="70" y1="430" x2="70" y2="680" stroke="#24242b"/>
+  <path d="M70 590 C150 560,180 605,250 565 S360 530,430 545 S510 490,590 510 S680 450,760 480 S850 420,940 446" fill="none" stroke="#818cf8" stroke-width="3"/>
+  <path d="M70 620 C180 610,260 630,350 605 S500 616,600 590 S760 615,940 600" fill="none" stroke="#38bdf8" stroke-width="3"/>
+  <path d="M70 660 C200 662,330 655,480 660 S730 620,940 650" fill="none" stroke="#facc15" stroke-width="3"/>
+  <text x="72" y="715" fill="#818cf8" font-family="Arial,sans-serif" font-size="11">━ Temperature (°C)</text>
+  <text x="210" y="715" fill="#38bdf8" font-family="Arial,sans-serif" font-size="11">━ Humidity (%)</text>
+  <text x="332" y="715" fill="#facc15" font-family="Arial,sans-serif" font-size="11">━ Light (lux)</text>
+
+  <rect x="1012" y="320" width="400" height="198" rx="10" fill="#17171c" stroke="#24242b"/>
+  <text x="1036" y="356" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="17" font-weight="700">Environment Shifts</text>
+  <text x="1036" y="378" fill="#6b7280" font-family="Arial,sans-serif" font-size="11">Light/humidity swings — not a presence sensor</text>
+  <circle cx="1044" cy="424" r="6" fill="#34d399"/><text x="1062" y="429" fill="#a1a1aa" font-family="Arial,sans-serif" font-size="13">Brighter / Humid</text>
+  <text x="1320" y="429" fill="#6b7280" font-family="monospace" font-size="11">14:15</text>
+
+  <rect x="1012" y="542" width="400" height="218" rx="10" fill="#17171c" stroke="#24242b"/>
+  <text x="1036" y="578" fill="#f4f4f5" font-family="Arial,sans-serif" font-size="17" font-weight="700">System Logs</text>
+  <rect x="1036" y="596" width="352" height="138" rx="6" fill="#0d0d0f"/>
+  <text x="1054" y="624" fill="#6b7280" font-family="monospace" font-size="11">[SYNC] reading queued and uploaded</text>
+  <text x="1054" y="652" fill="#6b7280" font-family="monospace" font-size="11">[WIFI] Memory-Link connected</text>
+  <text x="1054" y="680" fill="#6b7280" font-family="monospace" font-size="11">[SYSTEM] timer ready</text>
+</svg>

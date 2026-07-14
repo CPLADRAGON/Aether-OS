@@ -1,87 +1,169 @@
-# AETHER_OS: Advanced Environmental Telemetry & Habitability Engine
+# AETHER_OS
 
-A high-performance, dual-core embedded system for real-time environmental monitoring and cloud-synchronized data visualization. AETHER_OS leverages the ESP32 architecture to deliver a "Liquid UI" experience alongside robust data telemetry to a Supabase-backed Digital Twin dashboard.
+> **An ESP32 room monitor with a tactile OLED interface, resilient telemetry, and a live digital twin.**
 
-![AETHER_OS UI Philosophy](docs/pics/aether_ui_design_philosophy.png)
+![Aether dashboard interface preview](docs/pics/readme/dashboard-preview.svg)
 
-## Project Showcase
+AETHER_OS turns an ESP32 into a small, sleep-efficient room companion. It
+measures temperature, humidity, and light; presents them through a purpose-built
+64×48 OLED interface; preserves readings when WiFi is unavailable; and syncs
+the result to a Supabase-backed Next.js dashboard and Telegram bot.
 
-[![Aether Ecosystem Showcase](https://img.youtube.com/vi/FdzAVzHmHwI/maxresdefault.jpg)](https://www.youtube.com/watch?v=FdzAVzHmHwI)
+> [!NOTE]
+> The dashboard and OLED images below are current interface previews generated
+> from the repository's present layouts. They intentionally replace older
+> physical-device photos that no longer match the firmware.
 
-> [!TIP]
-> **Experience the Aether Ecosystem in Action**
-> Watch the full video to see the "Liquid UI" system, the sub-500ms WiFi handshake, and the real-time Digital Twin synchronization between the ESP32 and the cloud dashboard.
+## At a glance
 
----
+| Local device | Cloud & companion |
+| --- | --- |
+| Dual-core ESP32 user interface and telemetry worker | Next.js 16 / React 19 dashboard with Supabase Realtime |
+| 64×48 monochrome OLED with menu, detail views, timer, and alert states | PWA metadata for home-screen installation |
+| Deep sleep, fast Memory-Link WiFi reconnect, NVS-backed offline queue | Telegram commands for status, stats, and reports |
 
-## Performance Engine: "Zero-Wait" Architecture
+## OLED experience
 
-AETHER_OS is engineered for maximum performance and Flash longevity through a custom-built binary storage engine.
+![Current OLED interface gallery](docs/pics/readme/oled-ui-gallery.svg)
 
-- **Binary NVS Structs**: Replaced heavy JSON strings with packed C-structs in Non-Volatile Storage. This eliminates parsing overhead and reduces Flash wear.
-- **Dynamic Sleep Intervals**: User-selectable power profiles (5m, 15m, 30m, 1h) toggleable directly from the main menu via long-press. Selection is persisted in binary NVS.
-- **Sub-500ms WiFi (Memory-Link)**: Uses BSSID pinning and static IP snapshots to bypass DHCP handshakes, achieving cloud connectivity in under 500ms from boot.
-- **Stealth Mode**: Intelligent early-boot LED and sensor management to minimize current draw and maximize battery life.
-- **Fail-Safe Log Queue**: A 10-entry cyclic binary queue ensures session data survives even if the device reboots while offline.
+The main views keep the most useful number prominent. Short taps open detail
+views where information needs more space; long presses leave a screen or confirm
+an action.
 
-## Aether Telegram Report Center
+| Main menu item | What it does | Controls | Network |
+| --- | --- | --- | --- |
+| **MEASURE** | Takes five sensor samples, averages them, and syncs the result | Long press to start; long press during sampling exits | Optional: queues reading offline |
+| **TIME** | Large local clock with date strip | Short tap opens Time Detail; long press exits | NTP only when time has not been synced |
+| **WEATHER** | Temperature, humidity, and feels-like temperature | Short tap opens full-size condition icon/detail; long press exits | Yes |
+| **ROOM** | Instant local room snapshot | Short tap opens Room Status; long press exits | No |
+| **LOCATE** | Resolves city and UTC offset for Time/Weather | Opens location lookup result | Yes |
+| **TREND** | On-device recent Temperature / Humidity / Light sparklines | Short tap cycles metrics; long press exits | No |
+| **TIMER** | 5 / 10 / 15 / 25 / 30 minute countdown | Short tap changes preset; long press starts, cancels, or exits | No |
+| **LED** | Toggles ambient RGB LED behavior | Long press toggles | No |
+| **INTERVAL** | Cycles automatic measurement interval: 5m / 15m / 30m / 60m | Long press cycles | No |
+| **WIFI MENU** | Opens provisioning, saved-network selection, and credentials reset | Long press opens | Local AP for portal |
+| **STATS** | Displays device measures, boots, and accumulated runtime | Long press opens | No |
+| **RESET STATS** | Clears lifetime statistics after confirmation | Long press confirms | No |
+| **DEEP SLEEP** | Starts the low-power sleep sequence immediately | Long press activates | No |
 
-The system is paired with an interactive Telegram mascot that provides real-time access to your environmental data.
+### Timer & alerts
 
-- **Interactive Reports**: Request 24-hour, 7-day, 30-day, or 1-year environmental summaries via inline buttons.
-- **Efficiency Index**: Real-time reporting on the device's sync efficiency and network latency.
-- **Mascot Persona**: A custom-themed interactive bot that acts as your system's digital companion.
+The countdown timer persists through deep sleep. It checks for expiry when the
+device wakes and while the menu is open. On completion, it shows a timer-done
+screen and flashes the LED alert even if ambient LED mode is disabled.
 
-## Digital Twin Dashboard 2.0
+## Digital twin dashboard
 
-The AETHER Dashboard is a premium, glassmorphism-inspired Next.js application designed for strict dark mode aesthetics.
+The dashboard provides a current environmental overview alongside longer-term
+patterns:
 
-![AETHER_OS Dashboard](docs/pics/dashboard_screenshot.png)
+- **Live KPIs** for temperature, humidity, light, and comfort
+- **Trend analysis** with time-based smoothing, responsive mobile layout, and
+  1-decimal-point tooltips
+- **Comfort heatmap** for the current year, with future dates omitted and a
+  phone-friendly horizontal grid
+- **Power view** for session/runtime behavior
+- **Environment shifts** that honestly report light/humidity changes rather
+  than claiming a real occupancy sensor
+- **Offline reading recovery**: queued readings flush when the device reconnects
+- **PWA support**: install the dashboard from a mobile browser's “Add to Home
+  Screen” action
 
-### Advanced Analytics Features
+## System architecture
 
-- **KPI Dashlets**: Real-time tracking of Accumulated Uptime, Mean Session Duration, and Device Lifecycle (Boot/Sync indices).
-- **Active Profile Badge**: Remote confirmation of the device's selected sleep interval (e.g., 15m Interval).
-- **Efficiency Index**: A performance metric calculated against an 18s ideal sync baseline.
-- **Session Volatility Index**: ECharts-powered bar charts highlighting network/sensor lag in amber/red if thresholds are exceeded.
-- **Uptime Accumulation Plot**: A "Cyan Glow" area chart showing the growth of tracked runtime over time.
-- **Singapore Time (SGT) Sync**: All data is automatically localized for SGT (UTC+8) synchronization.
+```text
+┌──────────────────────┐       ┌───────────────────────┐
+│      ESP32 device    │       │       Supabase         │
+│                      │ HTTPS │  room_readings         │
+│ Core 0: OLED UI      ├──────►│  device_sessions       │
+│ Core 1: sensors/WiFi │       │  device_logs           │
+│ NVS + deep sleep     │       └──────────┬────────────┘
+└──────────────────────┘                  │ Realtime / REST
+                                           ▼
+                          ┌────────────────────────────────┐
+                          │ Next.js dashboard + Telegram bot │
+                          │ PWA · analytics · reports        │
+                          └────────────────────────────────┘
+```
 
-## System Architecture
+### Built for unreliable connectivity
 
-AETHER_OS utilizes a distributed computing model to ensure UI responsiveness never compromises sensor precision or network reliability.
+1. **Memory-Link WiFi** remembers BSSID, channel, and static-IP context for
+   faster reconnection after deep sleep.
+2. **Offline reading queue** stores up to 20 readings in binary NVS when WiFi
+   is down, then flushes them on the next successful sync.
+3. **Session log queue** retains runtime sessions independently, so lifecycle
+   data can recover after an outage.
+4. **Binary NVS structs** keep persistent data compact and avoid JSON parsing
+   on the device.
 
-### Dual-Core Processing Logic
+## Quick start
 
-1. **The Painter Core (Core 0)**: Dedicated to the "Liquid UI" engine. It manages high-frequency display updates, mechanical animations, and the SSD1306 OLED interface.
-2. **The Worker Core (Core 1)**: Handles telemetry tasks, including I2C sensor sampling, binary NVS management, and secure SSL/TLS communication with Supabase.
+### Prerequisites
 
-## Technical Specifications
+- ESP32 Dev Module
+- PlatformIO / VS Code for firmware work
+- Node.js 20+ for the dashboard
+- A Supabase project
 
-- **MCU**: ESP32 Dual-Core (240MHz) with NVS Binary Struct Optimization.
-- **Sensors**: DHT11 (Temp/Hum), MPU6050 (Motion/Tilt).
-- **Cloud Interface**: Supabase REST API (PostgreSQL) with Row-Level Security (RLS).
-- **Telegram Logic**: Next.js API Routes (Vercel) with Webhook Integration.
-- **Visualization**: Next.js 14, Tailwind CSS, ECharts-for-React, Framer Motion.
-- **Power Management**: ESP32 Deep Sleep (Timer/Ext0 Wakeup) with Runtime Tracking.
+### 1. Clone and configure
 
----
+```bash
+git clone https://github.com/CPLADRAGON/Aether-OS.git
+cd Aether-OS
+```
 
-## Getting Started
+Run [`supabase_schema.sql`](supabase_schema.sql) in the Supabase SQL editor.
+If your project predates the lux update, also run:
 
-Follow our comprehensive [Deployment & DIY Guide](DEPLOYMENT.md) to build your own unit.
+```sql
+ALTER TABLE room_readings
+ADD COLUMN IF NOT EXISTS lux_value FLOAT;
+```
 
-### Quick Start
+Create the local secret files (they are intentionally ignored by Git):
 
-1. **Clone**: `git clone https://github.com/CPLADRAGON/Aether-OS.git`
-2. **Backend**: Run `supabase_schema.sql` in your Supabase SQL Editor.
-3. **Configure**: Update `firmware/include/secrets.h` and `.env.local`.
-4. **Flash**: Upload via PlatformIO.
-5. **Monitor**: Access your dashboard or interact via the Telegram bot.
+```text
+firmware/include/secrets.h
+dashboard/.env.local
+```
 
-## Development Environment
+### 2. Flash firmware
 
-Built using the PlatformIO ecosystem within VS Code.
+```bash
+cd firmware
+pio run
+pio run -t upload
+pio device monitor
+```
 
-- **Framework**: Arduino / ESP-IDF
-- **Dashboard**: React 18+ with strict TypeScript and Tailwind CSS.
+### 3. Run dashboard
+
+```bash
+cd dashboard
+npm install
+npm run dev
+```
+
+For wiring, deployment, Supabase configuration, and the full hardware guide,
+see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## Technology
+
+| Layer | Stack |
+| --- | --- |
+| Firmware | ESP32, Arduino, FreeRTOS, PlatformIO, U8g2 |
+| Sensors | DHT11, LDR, optional MPU6050 |
+| Data | Supabase Postgres, REST, Realtime |
+| Dashboard | Next.js 16, React 19, Tailwind CSS v4, ECharts |
+| Companion | Telegram bot via Next.js route handler |
+
+## Security note
+
+The included Supabase policies are deliberately permissive for prototyping.
+Add authentication and tighter Row Level Security policies before exposing
+personal or sensitive room data publicly.
+
+## License
+
+See [LICENSE](LICENSE).
