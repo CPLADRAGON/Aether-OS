@@ -41,3 +41,6 @@ docs/pics/readme/generated/
 docs/pics/readme/source/build/
 docs/pics/readme/source/generated_icons.h
 .gstack/
+
+# Editor-generated code intelligence database
+firmware/compile_commands.json

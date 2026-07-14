@@ -30,10 +30,9 @@ AETHER_OS — an ESP32-based room monitor with a Supabase-backed "Digital Twin" 
 │   └── vercel.json              # Vercel deploy config (framework: nextjs)
 ├── supabase_schema.sql          # 3 tables: room_readings, device_sessions, device_logs
 ├── DEPLOYMENT.md                # Hardware build + deployment guide
-├── ANALYSIS.md                  # Architecture analysis and roadmap
 └── docs/
-    ├── pics/                    # Hardware and UI screenshots
-    └── specs/                   # Design documents
+    ├── pics/readme/             # Current README dashboard/OLED previews
+    └── superpowers/             # Current design specs and implementation plans
 ```
 
 ## Supabase Schema
