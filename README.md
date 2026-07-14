@@ -11,8 +11,10 @@ the result to a Supabase-backed Next.js dashboard and Telegram bot.
 
 > [!NOTE]
 > The dashboard and OLED images below are current interface previews generated
-> from the repository's present layouts. They intentionally replace older
-> physical-device photos that no longer match the firmware.
+> from the repository's present layouts. OLED previews begin as 64×48 raster
+> frames and use nearest-neighbor scaling for the same crisp pixel treatment as
+> the device display. They intentionally replace older physical-device photos
+> that no longer match the firmware.
 
 ## At a glance
 
@@ -24,7 +26,7 @@ the result to a Supabase-backed Next.js dashboard and Telegram bot.
 
 ## OLED experience
 
-![Current OLED interface gallery](docs/pics/readme/oled-ui-gallery.svg)
+![Current OLED interface gallery](docs/pics/readme/oled-ui-gallery.png)
 
 The main views keep the most useful number prominent. Short taps open detail
 views where information needs more space; long presses leave a screen or confirm

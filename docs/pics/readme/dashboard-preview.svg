@@ -55,9 +55,30 @@
   </g>
   <line x1="70" y1="680" x2="940" y2="680" stroke="#24242b"/>
   <line x1="70" y1="430" x2="70" y2="680" stroke="#24242b"/>
+  <line x1="70" y1="480" x2="940" y2="480" stroke="#24242b" stroke-dasharray="3 5"/>
+  <line x1="70" y1="530" x2="940" y2="530" stroke="#24242b" stroke-dasharray="3 5"/>
+  <line x1="70" y1="580" x2="940" y2="580" stroke="#24242b" stroke-dasharray="3 5"/>
+  <line x1="70" y1="630" x2="940" y2="630" stroke="#24242b" stroke-dasharray="3 5"/>
+  <g fill="#818cf8" font-family="Arial,sans-serif" font-size="10">
+    <text x="27" y="483">30.0°C</text><text x="27" y="533">28.0°C</text>
+    <text x="27" y="583">26.0°C</text><text x="27" y="633">24.0°C</text>
+  </g>
+  <g fill="#38bdf8" font-family="Arial,sans-serif" font-size="10">
+    <text x="947" y="483">80%</text><text x="947" y="533">70%</text>
+    <text x="947" y="583">60%</text><text x="947" y="633">50%</text>
+  </g>
+  <g fill="#facc15" font-family="Arial,sans-serif" font-size="10">
+    <text x="900" y="447">600 lx</text><text x="900" y="497">400 lx</text>
+    <text x="900" y="547">200 lx</text><text x="900" y="597">0 lx</text>
+  </g>
   <path d="M70 590 C150 560,180 605,250 565 S360 530,430 545 S510 490,590 510 S680 450,760 480 S850 420,940 446" fill="none" stroke="#818cf8" stroke-width="3"/>
   <path d="M70 620 C180 610,260 630,350 605 S500 616,600 590 S760 615,940 600" fill="none" stroke="#38bdf8" stroke-width="3"/>
   <path d="M70 660 C200 662,330 655,480 660 S730 620,940 650" fill="none" stroke="#facc15" stroke-width="3"/>
+  <g fill="#6b7280" font-family="Arial,sans-serif" font-size="10">
+    <text x="62" y="700">00:00</text><text x="208" y="700">04:00</text>
+    <text x="354" y="700">08:00</text><text x="500" y="700">12:00</text>
+    <text x="646" y="700">16:00</text><text x="792" y="700">20:00</text>
+  </g>
   <text x="72" y="715" fill="#818cf8" font-family="Arial,sans-serif" font-size="11">━ Temperature (°C)</text>
   <text x="210" y="715" fill="#38bdf8" font-family="Arial,sans-serif" font-size="11">━ Humidity (%)</text>
   <text x="332" y="715" fill="#facc15" font-family="Arial,sans-serif" font-size="11">━ Light (lux)</text>
