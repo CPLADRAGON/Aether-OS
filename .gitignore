@@ -37,4 +37,7 @@ next-env.d.ts
 
 # Brainstorming visual companion
 .superpowers/
+docs/pics/readme/generated/
+docs/pics/readme/source/build/
+docs/pics/readme/source/generated_icons.h
 .gstack/

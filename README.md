@@ -10,11 +10,10 @@ measures temperature, humidity, and light; presents them through a purpose-built
 the result to a Supabase-backed Next.js dashboard and Telegram bot.
 
 > [!NOTE]
-> The dashboard and OLED images below are current interface previews generated
-> from the repository's present layouts. OLED previews begin as 64×48 raster
-> frames and use nearest-neighbor scaling for the same crisp pixel treatment as
-> the device display. They intentionally replace older physical-device photos
-> that no longer match the firmware.
+> The dashboard image is a current interface preview. OLED previews are rendered
+> through U8g2's actual 64×48 framebuffer, fonts, and firmware XBM icon arrays,
+> then scaled with nearest-neighbor pixels. They intentionally replace older
+> physical-device photos that no longer match the firmware.
 
 ## At a glance
 
